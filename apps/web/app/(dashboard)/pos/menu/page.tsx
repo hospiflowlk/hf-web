@@ -151,7 +151,7 @@ export default function POSPage() {
         if (!taxBreakdown[taxObj.id]) {
           taxBreakdown[taxObj.id] = { name: taxObj.name, type: taxObj.type || taxObj.name, rate: taxObj.rate, amount: 0 };
         }
-        taxBreakdown[taxObj.id].amount += itemTax;
+        taxBreakdown[taxObj.id]!.amount += itemTax;
       }
     });
   });
