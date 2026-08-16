@@ -5,11 +5,22 @@ const api = axios.create({
   withCredentials: true, // Crucial for HTTP-only cookies
 });
 
+api.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('hf_access_token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
+});
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
       if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        localStorage.removeItem('hf_access_token');
         window.location.href = '/login';
       }
     }

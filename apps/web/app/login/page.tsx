@@ -39,7 +39,10 @@ export default function LoginPage() {
   async function onSubmit(values: z.infer<typeof loginSchema>) {
     setError(null);
     try {
-      await api.post("/auth/login", values);
+      const res = await api.post("/auth/login", values);
+      if (res.data?.access_token) {
+        localStorage.setItem('hf_access_token', res.data.access_token);
+      }
       router.push("/dashboard");
     } catch (err: any) {
       setError(err.response?.data?.message || "Invalid name or PIN");

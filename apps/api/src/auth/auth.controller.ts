@@ -27,7 +27,7 @@ export class AuthController {
       maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days
     });
 
-    return { message: 'Logged in successfully', user };
+    return { message: 'Logged in successfully', user, access_token };
   }
 
   @Post('logout')
