@@ -110,7 +110,8 @@ export default function TaxMasterPage() {
     if (!confirm("Are you sure you want to delete ALL taxes? This action cannot be undone.")) return;
     try {
       setLoading(true);
-      await Promise.all(taxes.map((t) => api.delete(`/taxes/${t.id}`)));
+      const ids = taxes.map((t) => t.id);
+      await api.post(`/taxes/bulk-delete`, { ids });
       await fetchTaxes();
     } catch (err) {
       console.error(err);

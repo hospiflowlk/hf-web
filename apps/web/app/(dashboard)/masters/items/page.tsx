@@ -163,7 +163,8 @@ export default function ItemMasterPage() {
     if (!confirm("Are you sure you want to delete ALL items? This action cannot be undone.")) return;
     try {
       setLoading(true);
-      await Promise.all(items.map(i => api.delete(`/items/${i.id}`)));
+      const ids = items.map(item => item.id);
+      await api.post('/items/bulk-delete', { ids });
       await fetchData();
     } catch (err: any) {
       console.error(err.message || err);

@@ -59,4 +59,25 @@ export class TaxesService {
       data: { isActive: false },
     });
   }
+
+  async bulkRemove(ids: string[]) {
+    const records = await this.prisma.tax.findMany({
+      where: { id: { in: ids } },
+    });
+
+    if (records.length === 0) return;
+
+    const timestamp = Date.now();
+    
+    return this.prisma.$transaction(
+      records.map((record, index) => 
+        this.prisma.tax.update({
+          where: { id: record.id },
+          data: {
+            isActive: false
+          }
+        })
+      )
+    );
+  }
 }

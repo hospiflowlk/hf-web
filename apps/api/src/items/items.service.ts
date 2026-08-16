@@ -119,4 +119,27 @@ export class ItemsService {
   async getTaxes() {
     return this.prisma.tax.findMany({ where: { isActive: true } });
   }
+
+  async bulkRemove(ids: string[]) {
+    const records = await this.prisma.item.findMany({
+      where: { id: { in: ids } },
+    });
+
+    if (records.length === 0) return;
+
+    const timestamp = Date.now();
+    
+    return this.prisma.$transaction(
+      records.map((record, index) => 
+        this.prisma.item.update({
+          where: { id: record.id },
+          data: {
+            isDeleted: true, 
+        isActive: false,
+        name: `${item.name
+          }
+        })
+      )
+    );
+  }
 }

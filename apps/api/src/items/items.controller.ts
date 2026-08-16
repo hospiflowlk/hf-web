@@ -48,4 +48,11 @@ export class ItemsController {
   remove(@Param('id') id: string) {
     return this.itemsService.remove(id);
   }
+
+  @Post('bulk-delete')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  bulkRemove(@Body() body: { ids: string[] }) {
+    if (!body.ids || !Array.isArray(body.ids)) return [];
+    return this.itemsService.bulkRemove(body.ids);
+  }
 }

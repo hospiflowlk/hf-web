@@ -62,8 +62,31 @@ export class CategoriesService {
       where: { id },
       data: { 
         isActive: false,
-        name: `${category.name}_deleted_${Date.now()}`
+        name: `${category.name}_deleted_${Date.now()}_${Math.random().toString(36).substring(7)}`
       },
     });
+  }
+
+  async bulkRemove(ids: string[]) {
+    const categories = await this.prisma.category.findMany({
+      where: { id: { in: ids } },
+    });
+
+    if (categories.length === 0) return;
+
+    const timestamp = Date.now();
+    
+    // Process sequentially or in a transaction to avoid connection pool exhaustion
+    return this.prisma.$transaction(
+      categories.map((category, index) => 
+        this.prisma.category.update({
+          where: { id: category.id },
+          data: {
+            isActive: false,
+            name: `${category.name}_deleted_${timestamp}_${index}`
+          }
+        })
+      )
+    );
   }
 }

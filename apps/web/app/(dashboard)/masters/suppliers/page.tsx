@@ -123,7 +123,8 @@ export default function SupplierMasterPage() {
     if (!confirm("Are you sure you want to delete ALL suppliers? This action cannot be undone.")) return;
     try {
       setLoading(true);
-      await Promise.all(suppliers.map(s => api.delete(`/suppliers/${s.id}`)));
+      const ids = suppliers.map(item => item.id);
+      await api.post('/suppliers/bulk-delete', { ids });
       await fetchSuppliers();
     } catch (err) {
       console.error(err);

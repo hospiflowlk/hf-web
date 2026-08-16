@@ -105,7 +105,8 @@ export default function CategoryMasterPage() {
     if (!confirm("Are you sure you want to delete ALL categories? This action cannot be undone.")) return;
     try {
       setLoading(true);
-      await Promise.all(categories.map(c => api.delete(`/categories/${c.id}`)));
+      const ids = categories.map(c => c.id);
+      await api.post('/categories/bulk-delete', { ids });
       await fetchCategories();
     } catch (err) {
       console.error(err);

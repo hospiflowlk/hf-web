@@ -107,7 +107,8 @@ export default function CustomerMasterPage() {
     if (!confirm("Are you sure you want to delete ALL customers? This action cannot be undone.")) return;
     try {
       setLoading(true);
-      await Promise.all(customers.map(c => api.delete(`/customers/${c.id}`)));
+      const ids = customers.map(item => item.id);
+      await api.post('/customers/bulk-delete', { ids });
       await fetchCustomers();
     } catch (err) {
       console.error(err);
