@@ -559,6 +559,8 @@ model Invoice {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([invoiceDate(sort: Desc), id(sort: Desc)])
 }
 
 model InvoiceSettlement {

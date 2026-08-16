@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import api from "@/lib/api";
+import useSWRInfinite from "swr/infinite";
 import Link from "next/link";
 import { Plus, Search, FileText, Download, Edit, Trash2, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,25 +13,23 @@ import SettleInvoiceDialog from "./components/SettleInvoiceDialog";
 
 export default function InvoicesListPage() {
   const router = useRouter();
-  const [invoices, setInvoices] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [settleInvoice, setSettleInvoice] = useState<any | null>(null);
 
-  useEffect(() => {
-    fetchInvoices();
-  }, []);
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
 
-  const fetchInvoices = async () => {
-    try {
-      const res = await api.get("/invoices");
-      setInvoices(res.data);
-    } catch (err) {
-      console.error("Failed to load invoices", err);
-    } finally {
-      setLoading(false);
-    }
+  const getKey = (pageIndex: number, previousPageData: any) => {
+    if (previousPageData && !previousPageData.nextCursor) return null;
+    if (pageIndex === 0) return `/invoices?limit=25`;
+    return `/invoices?cursor=${previousPageData.nextCursor}&limit=25`;
   };
+
+  const { data, error, size, setSize, mutate } = useSWRInfinite(getKey, fetcher);
+
+  const invoices = data ? data.flatMap(page => page.data) : [];
+  const isLoadingInitialData = !data && !error;
+  const isLoadingMore = isLoadingInitialData || (size > 0 && data && typeof data[size - 1] === "undefined");
+  const isReachingEnd = data?.[0]?.data.length === 0 || (data && data[data.length - 1]?.nextCursor === null);
 
   const filteredInvoices = invoices.filter(inv => 
     inv.invoiceNum?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -90,7 +89,7 @@ export default function InvoicesListPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {loading ? (
+                {isLoadingInitialData ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
                       Loading invoices...
@@ -160,7 +159,7 @@ export default function InvoicesListPage() {
                               if (confirm('Are you sure you want to delete this invoice?')) {
                                 try {
                                   await api.delete(`/invoices/${invoice.id}`);
-                                  fetchInvoices();
+                                  mutate();
                                 } catch(err) {
                                   alert('Failed to delete invoice');
                                 }
@@ -188,6 +187,19 @@ export default function InvoicesListPage() {
                 )}
               </tbody>
             </table>
+            
+            {!isLoadingInitialData && !isReachingEnd && !searchTerm && (
+              <div className="p-4 border-t border-border flex justify-center bg-slate-50">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setSize(size + 1)}
+                  disabled={isLoadingMore}
+                  className="bg-white shadow-sm"
+                >
+                  {isLoadingMore ? "Loading..." : "Load More"}
+                </Button>
+              </div>
+            )}
           </div>
           
         </div>
@@ -197,9 +209,7 @@ export default function InvoicesListPage() {
         invoice={settleInvoice}
         isOpen={!!settleInvoice}
         onClose={() => setSettleInvoice(null)}
-        onSuccess={() => {
-          fetchInvoices();
-        }}
+        onSuccess={() => mutate()}
       />
     </div>
   );
