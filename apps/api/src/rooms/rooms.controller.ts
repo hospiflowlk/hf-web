@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { RoomsService } from './rooms.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -77,6 +77,24 @@ export class RoomsController {
   @Get('categories')
   getRoomCategories() {
     return this.roomsService.getRoomCategories();
+  }
+
+  @Post('categories')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  createRoomCategory(@Body() data: { name: string; description?: string; basePrice?: number }) {
+    return this.roomsService.createRoomCategory(data);
+  }
+
+  @Put('categories/:id')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  updateRoomCategory(@Param('id') id: string, @Body() data: { name?: string; description?: string; basePrice?: number }) {
+    return this.roomsService.updateRoomCategory(id, data);
+  }
+
+  @Delete('categories/:id')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  deleteRoomCategory(@Param('id') id: string) {
+    return this.roomsService.deleteRoomCategory(id);
   }
 
   @Get('grid')

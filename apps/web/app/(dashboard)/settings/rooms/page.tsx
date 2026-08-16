@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, Settings as SettingsIcon } from "lucide-react";
+import { Plus, Trash2, Settings as SettingsIcon, Tag, Edit2 } from "lucide-react";
 import api from "@/lib/api";
 
 export default function RoomSettingsPage() {
@@ -16,6 +16,11 @@ export default function RoomSettingsPage() {
   const [newRoomNumber, setNewRoomNumber] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Category Management State
+  const [categoryOpen, setCategoryOpen] = useState(false);
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
+  const [catFormData, setCatFormData] = useState({ name: "", description: "", basePrice: 0 });
 
   useEffect(() => {
     fetchData();
@@ -69,19 +74,125 @@ export default function RoomSettingsPage() {
     }
   };
 
+  const openCategoryForm = (cat?: any) => {
+    if (cat) {
+      setEditingCategoryId(cat.id);
+      setCatFormData({ name: cat.name, description: cat.description || "", basePrice: cat.basePrice });
+    } else {
+      setEditingCategoryId(null);
+      setCatFormData({ name: "", description: "", basePrice: 0 });
+    }
+  };
+
+  const handleSaveCategory = async () => {
+    if (!catFormData.name) return;
+    try {
+      if (editingCategoryId) {
+        await api.put(`/rooms/categories/${editingCategoryId}`, catFormData);
+      } else {
+        await api.post("/rooms/categories", catFormData);
+      }
+      setEditingCategoryId(null);
+      setCatFormData({ name: "", description: "", basePrice: 0 });
+      fetchData(); // refresh categories list
+    } catch (e: any) {
+      alert("Save failed: " + (e.response?.data?.message || e.message));
+    }
+  };
+
+  const handleDeleteCategory = async (id: string) => {
+    if (confirm("Are you sure you want to delete this category?")) {
+      try {
+        await api.delete(`/rooms/categories/${id}`);
+        fetchData();
+      } catch (e: any) {
+        alert("Delete failed: " + (e.response?.data?.message || e.message));
+      }
+    }
+  };
+
   return (
     <div className="container mx-auto p-6 max-w-5xl">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <SettingsIcon className="w-6 h-6 text-gray-500" /> Room Settings
         </h1>
-        
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-primary hover:bg-primary/90">
-              <Plus className="w-4 h-4 mr-2" /> Add Room
-            </Button>
-          </DialogTrigger>
+        <div className="flex gap-2">
+          <Dialog open={categoryOpen} onOpenChange={setCategoryOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Tag className="w-4 h-4" /> Manage Categories
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md max-h-[80vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Room Categories</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4 pt-2">
+                <div className="bg-slate-50 p-3 rounded-lg border space-y-3">
+                  <h3 className="text-sm font-medium">{editingCategoryId ? "Edit Category" : "Add New Category"}</h3>
+                  <div className="space-y-2">
+                    <Input 
+                      placeholder="Category Name (e.g. Deluxe)" 
+                      value={catFormData.name} 
+                      onChange={e => setCatFormData({ ...catFormData, name: e.target.value })} 
+                    />
+                    <Input 
+                      placeholder="Description (Optional)" 
+                      value={catFormData.description} 
+                      onChange={e => setCatFormData({ ...catFormData, description: e.target.value })} 
+                    />
+                    <Input 
+                      type="number"
+                      placeholder="Base Price" 
+                      value={catFormData.basePrice || ""} 
+                      onChange={e => setCatFormData({ ...catFormData, basePrice: Number(e.target.value) })} 
+                    />
+                    <div className="flex gap-2 pt-1">
+                      <Button size="sm" onClick={handleSaveCategory} disabled={!catFormData.name}>
+                        {editingCategoryId ? "Update" : "Add"}
+                      </Button>
+                      {editingCategoryId && (
+                        <Button size="sm" variant="ghost" onClick={() => openCategoryForm()}>
+                          Cancel
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border rounded-md divide-y">
+                  {categories.length === 0 ? (
+                    <div className="p-4 text-center text-sm text-gray-500">No categories found.</div>
+                  ) : (
+                    categories.map(cat => (
+                      <div key={cat.id} className="p-3 flex justify-between items-center hover:bg-slate-50">
+                        <div>
+                          <div className="font-medium text-sm">{cat.name}</div>
+                          <div className="text-xs text-gray-500">Price: {cat.basePrice} | {cat.description || "No description"}</div>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openCategoryForm(cat)}>
+                            <Edit2 className="w-3 h-3 text-blue-600" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDeleteCategory(cat.id)}>
+                            <Trash2 className="w-3 h-3 text-red-600" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-primary hover:bg-primary/90">
+                <Plus className="w-4 h-4 mr-2" /> Add Room
+              </Button>
+            </DialogTrigger>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Add New Room</DialogTitle>
@@ -118,6 +229,7 @@ export default function RoomSettingsPage() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="bg-white border rounded-lg overflow-hidden shadow-sm">

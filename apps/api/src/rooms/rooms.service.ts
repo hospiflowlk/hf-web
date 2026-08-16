@@ -58,6 +58,35 @@ export class RoomsService {
     });
   }
 
+  async createRoomCategory(data: { name: string; description?: string; basePrice?: number }) {
+    return this.prisma.roomCategory.create({
+      data: {
+        name: data.name,
+        description: data.description,
+        basePrice: data.basePrice ? Number(data.basePrice) : 0,
+      }
+    });
+  }
+
+  async updateRoomCategory(id: string, data: { name?: string; description?: string; basePrice?: number }) {
+    const updateData: any = {};
+    if (data.name !== undefined) updateData.name = data.name;
+    if (data.description !== undefined) updateData.description = data.description;
+    if (data.basePrice !== undefined) updateData.basePrice = Number(data.basePrice);
+
+    return this.prisma.roomCategory.update({
+      where: { id },
+      data: updateData,
+    });
+  }
+
+  async deleteRoomCategory(id: string) {
+    return this.prisma.roomCategory.update({
+      where: { id },
+      data: { isDeleted: true },
+    });
+  }
+
   async createTestCheckIn(roomId: string, guestData: any) {
     const guest = await this.prisma.guest.create({
       data: {
