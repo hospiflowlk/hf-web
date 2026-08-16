@@ -192,8 +192,8 @@ export default function POSPage() {
     let guestText = "Walk-In";
     if (contextLabel.includes(" - ")) {
       const parts = contextLabel.split(" - ");
-      roomText = parts[0].replace('Room ', '');
-      guestText = parts[1];
+      roomText = parts[0]!.replace('Room ', '');
+      guestText = parts[1] || '';
     } else {
       roomText = contextLabel.replace('Room ', '');
     }
