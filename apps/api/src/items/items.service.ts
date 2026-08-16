@@ -135,8 +135,8 @@ export class ItemsService {
           where: { id: record.id },
           data: {
             isDeleted: true, 
-        isActive: false,
-        name: `${item.name
+            isActive: false,
+            name: `${record.name}_deleted_${timestamp}_${index}_${Math.random().toString(36).substring(7)}`
           }
         })
       )

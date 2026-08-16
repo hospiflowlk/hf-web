@@ -82,8 +82,8 @@ export class SuppliersService {
           where: { id: record.id },
           data: {
             isActive: false,
-        isDeleted: true,
-        name: `${supplier.name
+            isDeleted: true,
+            name: `${record.name}_deleted_${timestamp}_${index}_${Math.random().toString(36).substring(7)}`
           }
         })
       )
