@@ -5,8 +5,8 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 
-@Controller('items')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@Controller('items')\n@UseGuards(JwtAuthGuard, RolesGuard)\n\n
+
 export class ItemsController {
   constructor(private readonly itemsService: ItemsService) {}
 
@@ -51,7 +51,7 @@ export class ItemsController {
 
   @Post('bulk-delete')
   @Roles(Role.ADMIN, Role.MANAGER)
-  bulkRemove(@Body() body: { ids: string[] }) {
+  bulkRemove(@Body() body: any) {
     if (!body.ids || !Array.isArray(body.ids)) return [];
     return this.itemsService.bulkRemove(body.ids);
   }

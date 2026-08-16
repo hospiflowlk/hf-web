@@ -167,8 +167,9 @@ export default function ItemMasterPage() {
       await api.post('/items/bulk-delete', { ids });
       await fetchData();
     } catch (err: any) {
-      console.error(err.message || err);
-      toast.error("Error deleting all items.");
+      console.error(err);
+      const msg = err.response?.data?.message || err.message || "Unknown error";
+      toast.error(`Error deleting all items: ${msg}`);
     } finally {
       setLoading(false);
     }

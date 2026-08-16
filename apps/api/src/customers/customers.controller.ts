@@ -40,7 +40,7 @@ export class CustomersController {
 
   @Post('bulk-delete')
   @Roles(Role.ADMIN, Role.MANAGER)
-  bulkRemove(@Body() body: { ids: string[] }) {
+  bulkRemove(@Body() body: any) {
     if (!body.ids || !Array.isArray(body.ids)) return [];
     return this.customersService.bulkRemove(body.ids);
   }

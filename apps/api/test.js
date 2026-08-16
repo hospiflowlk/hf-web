@@ -1,48 +1,28 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-async function main() {
+async function test() {
+  const items = await prisma.item.findMany({ take: 5 });
+  const ids = items.map(i => i.id);
+  console.log('Testing bulk remove for ids:', ids);
+  
+  const timestamp = Date.now();
   try {
-    const item = await prisma.item.findFirst({
-      where: { name: 'Cream of Chicken Soup' }
-    });
-    if (!item) {
-      console.log('Item not found');
-      return;
-    }
-    
-    // Simulate what the backend receives in the update payload
-    const payload = {
-      name: item.name,
-      defaultPrice: 4.5,
-      categoryId: item.categoryId,
-      posCategoryId: null,
-      useInInvoices: true,
-      useInExpenses: true,
-      exemptTaxes: [],
-      itemType: "none",
-      trackStock: false,
-      unit: "pcs",
-      reorderLevel: 0,
-      costPrice: 0,
-      ingredients: []
-    };
-    
-    const { categoryId, exemptTaxes, ingredients, ...rest } = payload;
-    
-    await prisma.item.update({
-      where: { id: item.id },
-      data: {
-        ...rest,
-        ...(categoryId && { category: { connect: { id: categoryId } } }),
-      }
-    });
-    console.log('OK - Update Succeeded');
+    const res = await prisma.$transaction(
+      items.map((record, index) => 
+        prisma.item.update({
+          where: { id: record.id },
+          data: {
+            isDeleted: true, 
+            isActive: false,
+            name: `${record.name}_deleted_${timestamp}_${index}_${Math.random().toString(36).substring(7)}`
+          }
+        })
+      )
+    );
+    console.log('Success:', res.length);
   } catch (err) {
-    console.error('ERROR:', err);
-  } finally {
-    await prisma.$disconnect();
+    console.error('Prisma Error:', err);
   }
 }
-
-main();
+test();
