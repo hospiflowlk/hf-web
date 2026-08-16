@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import useSWR from "swr";
 import api from "@/lib/api";
 import { ArrowLeft, Save, FileText, CheckCircle, ChevronDown, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,14 @@ export default function EditInvoicePage() {
   const [sources, setSources] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [showGuestDropdown, setShowGuestDropdown] = useState(false);
+  const [mastersLoaded, setMastersLoaded] = useState(false);
+  
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: items = [] } = useSWR("/items", fetcher);
+  const { data: taxes = [] } = useSWR("/taxes", fetcher);
+  const { data: sources = [] } = useSWR("/business-sources", fetcher);
+  const { data: customersData = [] } = useSWR("/customers", fetcher);
+  const { data: loadedInvoice } = useSWR(id ? `/invoices/${id}` : null, fetcher);
   
   // Invoice Header
   const [invoiceNum, setInvoiceNum] = useState("");
@@ -60,45 +69,19 @@ export default function EditInvoicePage() {
   const [activeTab, setActiveTab] = useState<'summary' | 'preview'>('summary');
 
   useEffect(() => {
-    fetchMasterData();
-    if (id) fetchInvoiceData();
-  }, [id]);
-
-  const fetchInvoiceData = async () => {
-    try {
-      const res = await api.get(`/invoices/${id}`);
-      const inv = res.data;
-      setInvoiceNum(inv.invoiceNum);
-      setCurrency(inv.currency);
-      setInvoiceDate(inv.invoiceDate ? inv.invoiceDate.split('T')[0] : "");
-      setGuestName(inv.guestName || "");
-      setBusinessSource(inv.businessSource || "");
-      setRoundOff(inv.roundOff || 0);
-      setGlobalDiscount(inv.globalDiscount || 0);
-      setLines(inv.items || []);
-    } catch (err) {
-      console.error("Failed to load invoice", err);
-      alert("Invoice not found");
-      router.push("/invoices");
+    if (items.length > 0 && taxes.length > 0 && sources.length > 0 && customersData.length > 0 && loadedInvoice) {
+      setInvoiceNum(loadedInvoice.invoiceNum);
+      setCurrency(loadedInvoice.currency);
+      setInvoiceDate(loadedInvoice.invoiceDate ? loadedInvoice.invoiceDate.split('T')[0] : "");
+      setGuestName(loadedInvoice.guestName || "");
+      setBusinessSource(loadedInvoice.businessSource || "");
+      setRoundOff(loadedInvoice.roundOff || 0);
+      setGlobalDiscount(loadedInvoice.globalDiscount || 0);
+      setLines(loadedInvoice.items || []);
+      setCustomers(customersData);
+      setMastersLoaded(true);
     }
-  };
-
-  const fetchMasterData = async () => {
-    try {
-      const [itemsRes, taxesRes, sourcesRes, customersRes] = await Promise.all([
-        api.get("/items").catch(() => ({ data: [] })),
-        api.get("/taxes").catch(() => ({ data: [] })),
-        api.get("/business-sources").catch(() => ({ data: [] })),
-        api.get("/customers").catch(() => ({ data: [] }))
-      ]);
-      setItems(itemsRes.data.filter((item: any) => item.useInInvoices !== false));
-      setTaxes(taxesRes.data);
-      setSources(sourcesRes.data);
-      setCustomers(customersRes.data);
-    } catch (err) {
-      console.error("Failed to load master data", err);
-    }
-  };
+  }, [items, taxes, sources, customersData, loadedInvoice]);
 
   const handleItemSelect = (val: string) => {
     setSelectedItemId(val);
@@ -298,6 +281,9 @@ export default function EditInvoicePage() {
       <div className="flex flex-col lg:flex-row flex-1 lg:overflow-hidden">
         {/* Left Form Area */}
         <div className="flex-1 lg:overflow-y-auto p-4 md:p-8 hide-scrollbar">
+          {!mastersLoaded ? (
+            <div className="flex h-full items-center justify-center text-slate-500 font-medium py-10">Loading details...</div>
+          ) : (
           <div className="max-w-4xl mx-auto space-y-6">
             
             {/* Header Details */}
@@ -577,6 +563,7 @@ export default function EditInvoicePage() {
               </table>
             </div>
           </div>
+          )}
         </div>
 
         {/* Right Sidebar */}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useForm, useFieldArray, useWatch, Controller } from "react-hook-form";
+import useSWR from "swr";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Save, Search, Trash2, FileText, CalendarIcon, Check, ChevronsUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -250,14 +251,14 @@ export default function EditExpensePage() {
   const searchParams = useSearchParams();
   const autoSettle = searchParams.get('settle') === 'true';
   
-  // Master Data
-  const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [items, setItems] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [mastersLoaded, setMastersLoaded] = useState(false);
-  const [loadedExpense, setLoadedExpense] = useState<any>(null);
   const [settleDialogOpen, setSettleDialogOpen] = useState(false);
+  const [mastersLoaded, setMastersLoaded] = useState(false);
+  
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: suppliers = [] } = useSWR("/suppliers", fetcher);
+  const { data: items = [] } = useSWR("/items", fetcher);
+  const { data: categories = [] } = useSWR("/categories", fetcher);
+  const { data: loadedExpense } = useSWR(id ? `/expenses/${id}` : null, fetcher);
 
   const { register, control, handleSubmit, setValue, reset, formState: { errors } } = useForm<ExpenseFormValues>({
     defaultValues: {
@@ -286,62 +287,34 @@ export default function EditExpensePage() {
   const expenseDate = useWatch({ control, name: "expenseDate" });
 
   useEffect(() => {
-    fetchMasterData();
-    if (id) fetchExpenseData();
-  }, [id]);
+    if (suppliers.length > 0 && items.length > 0 && categories.length > 0 && loadedExpense) {
+      reset({
+        description: loadedExpense.description || "",
+        supplierId: loadedExpense.supplierId || "",
+        currency: loadedExpense.currency || "LKR",
+        reference: loadedExpense.reference || "",
+        expenseDate: loadedExpense.expenseDate ? loadedExpense.expenseDate.split('T')[0] : new Date().toISOString().split('T')[0],
+        status: loadedExpense.status || "Unpaid",
+        roundOff: loadedExpense.roundOff || 0,
+        note: loadedExpense.note || "",
+        items: loadedExpense.items && loadedExpense.items.length > 0 
+          ? loadedExpense.items.map((i: any) => ({
+              itemId: i.itemId || "",
+              categoryId: i.categoryId || "",
+              note: i.description || "",
+              unitPrice: i.unitPrice || 0,
+              quantity: i.quantity || 1,
+              vatAmount: i.vatAmount || 0,
+            }))
+          : [{ itemId: "", categoryId: "", note: "", unitPrice: 0, quantity: 1, vatAmount: 0 }]
+      });
+      setMastersLoaded(true);
 
-  const fetchExpenseData = async () => {
-    try {
-      const res = await api.get(`/expenses/${id}`);
-      const expense = res.data;
-      setLoadedExpense(expense);
-      
-      // Auto-open settle dialog if redirected from new page
-      if (autoSettle && expense.status === 'Paid') {
+      if (autoSettle && loadedExpense.status === 'Paid') {
         setSettleDialogOpen(true);
       }
-      
-      reset({
-        description: expense.description || "",
-        supplierId: expense.supplierId || "",
-        currency: expense.currency || "LKR",
-        reference: expense.reference || "",
-        expenseDate: expense.expenseDate ? expense.expenseDate.split('T')[0] : "",
-        items: expense.items && expense.items.length > 0 ? expense.items.map((i: any) => ({
-          itemId: i.itemId || "",
-          categoryId: i.categoryId || "",
-          note: i.note || "",
-          unitPrice: i.unitPrice || 0,
-          quantity: i.quantity || 1,
-          vatAmount: i.vatAmount || 0
-        })) : [{ itemId: "", categoryId: "", note: "", unitPrice: 0, quantity: 1, vatAmount: 0 }],
-        roundOff: expense.roundOff || 0,
-        note: expense.note || "",
-        status: expense.status || "Unpaid"
-      });
-    } catch (err) {
-      console.error("Failed to fetch expense", err);
-      alert("Expense not found");
-      router.push("/expenses");
     }
-  };
-
-  const fetchMasterData = async () => {
-    try {
-      const [suppRes, itemsRes, catRes] = await Promise.all([
-        api.get("/suppliers").catch(() => ({ data: [] })),
-        api.get("/items").catch(() => ({ data: [] })),
-        api.get("/categories").catch(() => ({ data: [] }))
-      ]);
-      setSuppliers(suppRes.data);
-      setItems(itemsRes.data);
-      setCategories(catRes.data);
-      setMastersLoaded(true);
-    } catch (err) {
-      console.error("Failed to load master data", err);
-      setMastersLoaded(true); // Ensure it doesn't stay loading forever on error
-    }
-  };
+  }, [suppliers, items, categories, loadedExpense, autoSettle, reset]);  
 
   const calculateSubtotal = () => {
     return formItems.reduce((sum, item) => {
@@ -541,6 +514,9 @@ export default function EditExpensePage() {
               </div>
               
               <div>
+                {!mastersLoaded ? (
+                  <div className="flex items-center justify-center text-slate-500 font-medium py-10">Loading details...</div>
+                ) : (
                 <table className="w-full text-sm text-left">
                   <thead className="text-sm text-slate-600 font-semibold bg-slate-50/80 border-b border-slate-100">
                     <tr>
@@ -571,6 +547,7 @@ export default function EditExpensePage() {
                     ))}
                   </tbody>
                 </table>
+                )}
               </div>
             </div>
             
