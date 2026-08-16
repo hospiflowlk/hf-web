@@ -141,6 +141,12 @@ export class RoomsController {
     return this.roomsService.createRoom(data);
   }
 
+  @Put(':id')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  updateRoom(@Param('id') id: string, @Body() data: { number?: string; categoryId?: string }) {
+    return this.roomsService.updateRoom(id, data);
+  }
+
   @Delete(':id')
   @Roles(Role.ADMIN, Role.MANAGER)
   deleteRoom(@Param('id') id: string) {

@@ -13,6 +13,7 @@ export default function RoomSettingsPage() {
   const [loading, setLoading] = useState(true);
 
   const [open, setOpen] = useState(false);
+  const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [newRoomNumber, setNewRoomNumber] = useState("");
   const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -48,17 +49,35 @@ export default function RoomSettingsPage() {
     setLoading(false);
   };
 
-  const handleCreate = async () => {
+  const openRoomForm = (room?: any) => {
+    if (room) {
+      setEditingRoomId(room.id);
+      setNewRoomNumber(room.number);
+      setSelectedCategoryId(room.categoryId || "");
+    } else {
+      setEditingRoomId(null);
+      setNewRoomNumber("");
+      setSelectedCategoryId("");
+    }
+    setOpen(true);
+  };
+
+  const handleSaveRoom = async () => {
     if (!newRoomNumber || !selectedCategoryId) return;
     setSubmitting(true);
     try {
-      await api.post("/rooms", { number: newRoomNumber, categoryId: selectedCategoryId });
+      if (editingRoomId) {
+        await api.put(`/rooms/${editingRoomId}`, { number: newRoomNumber, categoryId: selectedCategoryId });
+      } else {
+        await api.post("/rooms", { number: newRoomNumber, categoryId: selectedCategoryId });
+      }
       setOpen(false);
+      setEditingRoomId(null);
       setNewRoomNumber("");
       setSelectedCategoryId("");
       fetchData();
     } catch (e: any) {
-      alert("Failed to create room: " + (e.response?.data?.message || e.message));
+      alert("Failed to save room: " + (e.response?.data?.message || e.message));
     }
     setSubmitting(false);
   };
@@ -187,9 +206,9 @@ export default function RoomSettingsPage() {
             </DialogContent>
           </Dialog>
 
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(val) => { setOpen(val); if (!val) openRoomForm(); }}>
             <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary/90">
+              <Button className="bg-primary hover:bg-primary/90" onClick={() => openRoomForm()}>
                 <Plus className="w-4 h-4 mr-2" /> Add Room
               </Button>
             </DialogTrigger>
@@ -221,10 +240,10 @@ export default function RoomSettingsPage() {
               </div>
               <Button 
                 className="w-full bg-primary hover:bg-primary/90" 
-                onClick={handleCreate}
+                onClick={handleSaveRoom}
                 disabled={submitting || !newRoomNumber || !selectedCategoryId}
               >
-                {submitting ? "Adding..." : "Add Room"}
+                {submitting ? "Saving..." : (editingRoomId ? "Update Room" : "Add Room")}
               </Button>
             </div>
           </DialogContent>
@@ -257,7 +276,15 @@ export default function RoomSettingsPage() {
                       {room.status}
                     </span>
                   </td>
-                  <td className="p-4 text-right">
+                  <td className="p-4 text-right flex justify-end gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="text-blue-500 hover:text-blue-700 hover:bg-blue-50"
+                      onClick={() => openRoomForm(room)}
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </Button>
                     <Button 
                       variant="ghost" 
                       size="icon" 

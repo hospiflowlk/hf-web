@@ -658,6 +658,24 @@ export class RoomsService {
     });
   }
 
+  async updateRoom(id: string, data: { number?: string; categoryId?: string }) {
+    if (data.number) {
+      const existing = await this.prisma.room.findFirst({
+        where: { number: data.number, isDeleted: false, NOT: { id } }
+      });
+      if (existing) {
+        throw new Error('Room number already exists');
+      }
+    }
+    return this.prisma.room.update({
+      where: { id },
+      data: {
+        ...(data.number && { number: data.number }),
+        ...(data.categoryId && { categoryId: data.categoryId })
+      }
+    });
+  }
+
   async deleteRoom(id: string) {
     return this.prisma.room.update({
       where: { id },
