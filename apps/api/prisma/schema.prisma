@@ -619,6 +619,8 @@ model Expense {
   supplier    Supplier?           @relation(fields: [supplierId], references: [id])
   items       ExpenseItem[]
   settlements ExpenseSettlement[]
+
+  @@index([expenseDate(sort: Desc), id(sort: Desc)])
 }
 
 model ExpenseItem {

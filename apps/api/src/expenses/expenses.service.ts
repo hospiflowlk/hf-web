@@ -7,14 +7,23 @@ const round2 = (val: any) => Number((parseFloat(val) || 0).toFixed(2));
 export class ExpensesService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll() {
-    return this.prisma.expense.findMany({
-      orderBy: { expenseDate: 'desc' },
+  async findAll(cursor?: string, limit: number = 50) {
+    const data = await this.prisma.expense.findMany({
+      take: limit,
+      skip: cursor ? 1 : 0,
+      cursor: cursor ? { id: cursor } : undefined,
+      orderBy: [
+        { expenseDate: 'desc' },
+        { id: 'desc' }
+      ],
       include: {
         items: true,
         supplier: true
       }
     });
+
+    const nextCursor = data.length === limit ? data[data.length - 1].id : null;
+    return { data, nextCursor };
   }
 
   async findOne(id: string) {

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, UseGuards, Query } from '@nestjs/common';
 import { ExpensesService } from './expenses.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
@@ -8,8 +8,12 @@ export class ExpensesController {
   constructor(private readonly expensesService: ExpensesService) {}
 
   @Get()
-  findAll() {
-    return this.expensesService.findAll();
+  findAll(
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string
+  ) {
+    const parsedLimit = limit ? parseInt(limit, 10) : 50;
+    return this.expensesService.findAll(cursor, parsedLimit);
   }
 
   @Get(':id')
