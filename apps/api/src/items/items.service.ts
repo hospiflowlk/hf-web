@@ -113,7 +113,7 @@ export class ItemsService {
   }
 
   async getCategories() {
-    return this.prisma.category.findMany();
+    return this.prisma.category.findMany({ where: { isActive: true } });
   }
 
   async getTaxes() {
