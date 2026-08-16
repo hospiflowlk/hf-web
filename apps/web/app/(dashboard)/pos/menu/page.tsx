@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Search, ShoppingBag, Plus, Minus, Trash2, CreditCard, Banknote, Coffee, User, ArrowLeft, MessageCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,14 @@ type InventoryItem = {
 type CartItem = InventoryItem & { cartItemId: string; cartQuantity: number; isHB?: boolean; note?: string };
 
 export default function POSPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-gray-500">Loading POS Menu...</div>}>
+      <POSContent />
+    </Suspense>
+  );
+}
+
+function POSContent() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [posCategories, setPosCategories] = useState<any[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
