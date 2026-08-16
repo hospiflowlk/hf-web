@@ -1,0 +1,803 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  USER
+}
+
+model User {
+  id           String     @id @default(uuid())
+  name         String     @unique
+  pinHash      String     @default("$2b$10$wT/0hC3OStQ5cStt2e2iIedDkQk7.M6KxR.2a7S3Lh3T4M6W0.tO6") // Hashes to 2014
+  refreshToken String? // Stores hashed refresh token
+  role         Role       @default(USER)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  auditLogs    AuditLog[]
+
+  resCreated   Reservation[]    @relation("ResCreated")
+  resUpdated   Reservation[]    @relation("ResUpdated")
+  resCancelled Reservation[]    @relation("ResCancelled")
+  oooCreated   RoomOutOfOrder[] @relation("OOOCreated")
+  oooUpdated   RoomOutOfOrder[] @relation("OOOUpdated")
+  oooResolved  RoomOutOfOrder[] @relation("OOOResolved")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  oldValue  Json?
+  newValue  Json?
+  timestamp DateTime @default(now())
+}
+
+// ==========================================
+// CORE SETTINGS & CURRENCY
+// ==========================================
+
+model Currency {
+  code         String  @id // e.g., "LKR", "USD", "GBP", "EUR"
+  name         String
+  symbol       String
+  exchangeRate Float   @default(1.0)
+  isBase       Boolean @default(false)
+  isEnabled    Boolean @default(true)
+
+  history CurrencyRateHistory[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model CurrencyRateHistory {
+  id           String   @id @default(uuid())
+  currencyCode String
+  currency     Currency @relation(fields: [currencyCode], references: [code], onDelete: Cascade)
+  rate         Float
+  timestamp    DateTime @default(now())
+}
+
+model BusinessSettings {
+  id                     String @id @default("default")
+  baseCurrencyCode       String @default("LKR")
+  invoiceDefaultCurrency String @default("USD")
+  expenseDefaultCurrency String @default("LKR")
+  reportDefaultCurrency  String @default("LKR")
+
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+// ==========================================
+// FINANCE & OPERATIONS (Migration Targets)
+// ==========================================
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+model Account {
+  id                  String    @id @default(uuid())
+  name                String    @unique
+  currency            String    @default("LKR")
+  type                String    @default("Bank") // Changed from Enum to String for flexibility
+  balance             Float     @default(0.0)
+  startingBalance     Float     @default(0.0)
+  startingBalanceDate DateTime?
+  cardChargePercent   Float     @default(0.0)
+  onlineTransferFee   Float     @default(0.0)
+
+  isCardAccount         Boolean @default(false)
+  isCardPaymentPriority Boolean @default(false)
+  isLiquid              Boolean @default(true)
+  isStarred             Boolean @default(false)
+  isActive              Boolean @default(true)
+  isDeleted             Boolean @default(false)
+
+  feeCategoryId String?
+  feeSupplierId String?
+
+  feeCategory Category? @relation(fields: [feeCategoryId], references: [id])
+  feeSupplier Supplier? @relation(fields: [feeSupplierId], references: [id])
+
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  transactions       Transaction[]
+  settlements        InvoiceSettlement[]
+  expenseSettlements ExpenseSettlement[]
+}
+
+model Transaction {
+  id          String   @id @default(uuid())
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id])
+  amount      Float
+  date        DateTime @default(now())
+  category    String
+  description String?
+  isDeleted   Boolean  @default(false)
+
+  // Currency Snapshot
+  currencyCode   String @default("LKR")
+  exchangeRate   Float  @default(1.0)
+  originalAmount Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+// PAYROLL
+// ==========================================
+
+model Employee {
+  id             String          @id @default(uuid())
+  name           String
+  position       String
+  baseSalary     Float
+  joinDate       DateTime
+  isActive       Boolean         @default(true)
+  isDeleted      Boolean         @default(false)
+  payrollRecords PayrollRecord[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model PayrollRecord {
+  id         String   @id @default(uuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  month      DateTime // Store as the 1st of the month
+  salary     Float
+  deductions Float    @default(0)
+  bonuses    Float    @default(0)
+  netPay     Float
+  isPaid     Boolean  @default(false)
+  isDeleted  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ==========================================
+// ITEM MASTER & INVENTORY
+// ==========================================
+
+model Category {
+  id           String        @id @default(uuid())
+  name         String        @unique
+  isRevenue    Boolean       @default(false)
+  isExpense    Boolean       @default(true)
+  isAsset      Boolean       @default(false)
+  isLiability  Boolean       @default(false)
+  isActive     Boolean       @default(true)
+  items        Item[]
+  Account      Account[]
+  expenseItems ExpenseItem[]
+}
+
+model PosCategory {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sortOrder Int      @default(0)
+  items     Item[]
+}
+
+model Tax {
+  id               String   @id @default(uuid())
+  name             String   @unique
+  rate             Float
+  type             String   @default("Other") // Simulated Enum: "SC", "VAT", "Other"
+  calculationBase  String   @default("Net") // Simulated Enum: "Gross", "Net", "Net + Previous Taxes"
+  calculationOrder Int      @default(1)
+  isTurnoverTax    Boolean  @default(false)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
+
+  exemptItems Item[] @relation("ItemTaxExemptions")
+}
+
+model Item {
+  id           String    @id @default(uuid())
+  name          String       @unique
+  categoryId    String?
+  category      Category?    @relation(fields: [categoryId], references: [id])
+  posCategoryId String?
+  posCategory   PosCategory? @relation(fields: [posCategoryId], references: [id])
+  defaultPrice Float?    @default(0.0)
+  isActive     Boolean   @default(true)
+  isDeleted    Boolean   @default(false)
+
+  // Visibility Flags
+  useInInvoices Boolean @default(true)
+  useInExpenses Boolean @default(true)
+
+  // Exempt Taxes (Many-to-Many relation)
+  exemptTaxes Tax[] @relation("ItemTaxExemptions")
+
+  // Inventory
+  itemType      String  @default("none") // "none", "direct", "composite", "ingredient"
+  trackStock    Boolean @default(false)
+  unit          String  @default("pcs") // "pcs", "ml", "g", "kg", "bottle", "shot", "unit"
+  stockQuantity Float   @default(0.0)
+  reorderLevel  Float   @default(0.0)
+  costPrice     Float   @default(0.0)
+
+  // Composite Ingredients mapping
+  compositeOf  ItemIngredient[] @relation("CompositeItem")
+  ingredientIn ItemIngredient[] @relation("IngredientItem")
+
+  // Orders
+  orderItems   OrderItem[]
+  invoiceItems InvoiceItem[]
+  expenseItems ExpenseItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Inventory tracking
+  inventoryTransactions InventoryTransaction[]
+}
+
+model InventoryTransaction {
+  id        String   @id @default(uuid())
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  type      String   // "IN", "OUT", "ADJUST"
+  quantity  Float
+  reference String?  // e.g. Expense ID, Order ID, or "Manual Adjustment"
+  remarks   String?
+  createdAt DateTime @default(now())
+}
+
+model ItemIngredient {
+  id               String @id @default(uuid())
+  compositeItemId  String
+  ingredientItemId String
+  quantity         Float
+  unit             String
+
+  compositeItem Item @relation("CompositeItem", fields: [compositeItemId], references: [id], onDelete: Cascade)
+  ingredient    Item @relation("IngredientItem", fields: [ingredientItemId], references: [id], onDelete: Cascade)
+}
+
+// ==========================================
+// MASTERS (Suppliers & Customers)
+// ==========================================
+
+model Supplier {
+  id        String  @id @default(uuid())
+  name      String  @unique
+  email     String?
+  phone     String?
+  address   String?
+  taxNumber String?
+
+  // Bank Details
+  bankName      String?
+  accountName   String?
+  accountNumber String?
+  branch        String?
+
+  isActive  Boolean   @default(true)
+  isDeleted Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  Account   Account[]
+  expenses  Expense[]
+}
+
+model Customer {
+  id        String  @id @default(uuid())
+  name      String  @unique
+  phone     String?
+  email     String?
+  address   String?
+  taxNumber String?
+
+  isActive  Boolean  @default(true)
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+// PMS (Property Management System)
+// ==========================================
+
+model BusinessSource {
+  id             String @id @default(uuid())
+  name           String @unique // e.g., "Booking.com", "TA", "Direct"
+  commissionRate Float  @default(0) // Percentage commission
+
+  isActive  Boolean  @default(true)
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ==========================================
+
+model RoomCategory {
+  id          String   @id @default(uuid())
+  name        String // e.g., "Deluxe Room with Balcony Ground Floor"
+  description String?
+  basePrice   Float    @default(0)
+  rooms       Room[]
+  isDeleted   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum RoomStatus {
+  CLEAN
+  DIRTY
+  OUT_OF_ORDER
+  MAINTENANCE
+}
+
+model Room {
+  id                        String                      @id @default(uuid())
+  number                    String                      @unique // e.g., "101"
+  categoryId                String
+  category                  RoomCategory                @relation(fields: [categoryId], references: [id])
+  status                    RoomStatus                  @default(CLEAN)
+  isDeleted                 Boolean                     @default(false)
+  reservations              LegacyReservation[]
+  outOfOrders               RoomOutOfOrder[]
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @updatedAt
+  ReservationRoomAllocation ReservationRoomAllocation[]
+}
+
+model RoomOutOfOrder {
+  id        String   @id @default(uuid())
+  roomId    String
+  room      Room     @relation(fields: [roomId], references: [id])
+  startDate DateTime
+  endDate   DateTime
+  isActive  Boolean  @default(true)
+  reason    String
+  notes     String?
+
+  resolvedAt   DateTime?
+  resolvedById String?
+  resolvedBy   User?     @relation("OOOResolved", fields: [resolvedById], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  createdById String?
+  createdBy   User?    @relation("OOOCreated", fields: [createdById], references: [id])
+  updatedById String?
+  updatedBy   User?    @relation("OOOUpdated", fields: [updatedById], references: [id])
+
+  @@index([roomId, startDate])
+  @@index([roomId, endDate])
+}
+
+model Guest {
+  id           String              @id @default(uuid())
+  firstName    String
+  lastName     String
+  email        String?
+  phone        String?
+  documentId   String? // Passport/NIC
+  isDeleted    Boolean             @default(false)
+  reservations LegacyReservation[]
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  Reservation  Reservation[]
+}
+
+enum LegacyReservationStatus {
+  CONFIRMED
+  TENTATIVE
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+  BLOCK
+}
+
+model LegacyReservation {
+  id         String                  @id @default(uuid())
+  guestId    String? // Nullable for Blocks
+  guest      Guest?                  @relation(fields: [guestId], references: [id])
+  roomId     String
+  room       Room                    @relation(fields: [roomId], references: [id])
+  status     LegacyReservationStatus @default(CONFIRMED)
+  checkIn    DateTime
+  checkOut   DateTime
+  source     String? // e.g., "Booking.com", "Direct"
+  totalPrice Float                   @default(0)
+  notes      String?
+
+  // Extra fields for Business Blocks
+  companyName   String?
+  contactPerson String?
+  releaseDate   DateTime?
+
+  isDeleted Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  posOrders Order[]
+}
+
+// ==========================================
+// POS (Point of Sale)
+// ==========================================
+
+enum OrderStatus {
+  PENDING
+  PREPARING
+  SERVED
+  PAID
+  CANCELLED
+}
+
+enum OrderType {
+  ROOM
+  WALK_IN
+  LEGACY
+}
+
+enum WalkInSessionStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  ROOM_CHARGE
+}
+
+model Order {
+  id              String         @id @default(uuid())
+  orderType       OrderType      @default(LEGACY)
+  guestId         String?        // If attached to a guest
+  roomId          String?        // If charged to a room
+  legacyReservationId String?
+  legacyReservation   LegacyReservation? @relation(fields: [legacyReservationId], references: [id])
+  walkInSessionId String?        // If attached to a Walk-In Session
+  walkInSession   WalkInSession? @relation(fields: [walkInSessionId], references: [id])
+  status          OrderStatus    @default(PENDING)
+  paymentMethod   PaymentMethod?
+  subtotal      Float          @default(0)
+  tax           Float          @default(0)
+  total         Float          @default(0)
+
+  // Currency Snapshot
+  currencyCode  String @default("LKR")
+  exchangeRate  Float  @default(1.0)
+  originalTotal Float?
+
+  signatureData String?   // Base64 encoded signature image
+  tip           Float?    @default(0)
+  signedAt      DateTime? // Date and time when the signature was applied
+
+  items     OrderItem[]
+  isDeleted Boolean     @default(false)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+}
+
+model WalkInSession {
+  id              String              @id @default(uuid())
+  referenceNumber String              @unique
+  guestName       String
+  guestCount      Int                 @default(1)
+  status          WalkInSessionStatus @default(ACTIVE)
+  
+  orders          Order[]
+
+  createdAt       DateTime            @default(now())
+  closedAt        DateTime?
+  isDeleted       Boolean             @default(false)
+}
+
+model OrderItem {
+  id         String   @id @default(uuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id])
+  itemId     String
+  item       Item     @relation(fields: [itemId], references: [id])
+  quantity   Int      @default(1)
+  unitPrice  Float
+  totalPrice Float
+  note       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+// ==========================================
+// FRONT DESK & INVOICING
+// ==========================================
+
+model Invoice {
+  id             String   @id @default(uuid())
+  invoiceNum     String   @unique
+  guestName      String?
+  guestPhone     String?
+  guestEmail     String?
+  guestAddress   String?
+  guestTinVat    String?
+  notes          String?
+  status         String // 'Paid', 'Unpaid', 'Partial'
+  currency       String   @default("USD")
+  roundOff       Float    @default(0.0)
+  globalDiscount Float    @default(0.0)
+  totalAmount    Float
+  invoiceDate    DateTime @default(now())
+  isDraft        Boolean  @default(false)
+  businessSource String? // 'Booking.com', 'TA', 'Direct'
+
+  // Relations
+  items       InvoiceItem[]
+  settlements InvoiceSettlement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model InvoiceSettlement {
+  id               String   @id @default(uuid())
+  invoiceId        String
+  accountId        String
+  amount           Float
+  exchangeRate     Float    @default(1.0)
+  cardChargeAmount Float    @default(0.0)
+  paidDate         DateTime @default(now())
+  note             String?
+  isReconciled     Boolean  @default(false)
+
+  // Relations
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id])
+}
+
+model InvoiceItem {
+  id            String  @id @default(uuid())
+  invoiceId     String
+  itemId        String?
+  description   String
+  quantity      Float
+  unitPrice     Float
+  discountType  String? // 'percent', 'fixed'
+  discountValue Float?
+  taxIds        String? // Comma separated list of applied Tax IDs
+  netAmount     Float?
+  scAmount      Float?
+  vatAmount     Float?
+  otherTaxAmount Float?
+  total         Float
+
+  // Relations
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  item    Item?   @relation(fields: [itemId], references: [id])
+}
+
+// ==========================================
+// EXPENSES
+// ==========================================
+
+model Expense {
+  id          String   @id @default(uuid())
+  supplierId  String?
+  reference   String? // Bill No / Invoice No
+  currency    String   @default("LKR")
+  status      String // 'Paid', 'Unpaid'
+  roundOff    Float    @default(0.0)
+  totalAmount Float
+  description String?
+  note        String?
+  expenseDate DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  // Relations
+  supplier    Supplier?           @relation(fields: [supplierId], references: [id])
+  items       ExpenseItem[]
+  settlements ExpenseSettlement[]
+}
+
+model ExpenseItem {
+  id          String  @id @default(uuid())
+  expenseId   String
+  itemId      String? // Link to master item
+  categoryId  String // Mandatory Main Category
+  description String? // Optional override name
+  quantity    Float   @default(1.0)
+  unitPrice   Float
+  vatAmount   Float   @default(0.0)
+  amount      Float
+  lineTotal   Float
+  note        String?
+
+  expense  Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  item     Item?    @relation(fields: [itemId], references: [id])
+  category Category @relation(fields: [categoryId], references: [id])
+}
+
+model ExpenseSettlement {
+  id           String   @id @default(uuid())
+  expenseId    String
+  accountId    String // Source of funds (Bank/Cash account)
+  amount       Float
+  amountPaid   Float
+  reference    String? // Cheque # / Reference
+  batchId      String?
+  paidDate     DateTime @default(now())
+  isReconciled Boolean  @default(false)
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id])
+}
+
+// =========================
+// ENUMS
+// =========================
+enum BookingSource {
+  BOOKING_COM
+  AGODA
+  OTHER_OTA
+  TRAVEL_AGENT
+  DIRECT_LOCAL
+  DIRECT_FOREIGN
+}
+
+enum ReservationStatus {
+  TENTATIVE
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
+}
+
+enum ChannelSyncStatus {
+  NOT_APPLICABLE
+  PENDING
+  SYNCED
+  FAILED
+  CONFLICT
+}
+
+enum SupportedCurrency {
+  LKR
+  USD
+  EUR
+  GBP
+}
+
+// =========================
+// SETTINGS
+// =========================
+model ReservationSettings {
+  id                       String   @id @default("default")
+  maxActiveRooms           Int      @default(20)
+  defaultCheckInTime       String   @default("14:00")
+  defaultCheckOutTime      String   @default("12:00")
+  tentativeBlocksInventory Boolean  @default(true)
+  timezone                 String   @default("Asia/Colombo")
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+// =========================
+// MODELS
+// =========================
+model Reservation {
+  id               String        @id @default(uuid())
+  bookingReference String?
+  bookingSource    BookingSource @default(DIRECT_LOCAL)
+  travelAgent      String?
+  tourNo           String?
+  groupName        String?
+
+  status ReservationStatus @default(CONFIRMED)
+
+  // Default stay dates for the group
+  checkInDatetime  DateTime
+  checkOutDatetime DateTime
+  isDayRoom        Boolean  @default(false)
+
+  ratePlan String?
+  currency SupportedCurrency @default(LKR)
+  mealPlan String?
+
+  // Totals (Integer Minor Units)
+  parentTotalMinor Int @default(0)
+
+  guestId    String?
+  guest      Guest?  @relation(fields: [guestId], references: [id])
+  guestTitle String?
+  guestName  String?
+  mobile     String?
+  email      String?
+  country    String?
+
+  guestRemarks    String?
+  internalRemarks String?
+
+  // Channel Sync
+  externalBookingId  String?
+  channelName        String?
+  syncStatus         ChannelSyncStatus @default(NOT_APPLICABLE)
+  lastSyncedAt       DateTime?
+  channelPayloadJson Json?
+
+  // Audit Trail
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  cancelledAt        DateTime?
+  cancellationReason String?
+
+  createdById   String?
+  createdBy     User?   @relation("ResCreated", fields: [createdById], references: [id])
+  updatedById   String?
+  updatedBy     User?   @relation("ResUpdated", fields: [updatedById], references: [id])
+  cancelledById String?
+  cancelledBy   User?   @relation("ResCancelled", fields: [cancelledById], references: [id])
+
+  allocations ReservationRoomAllocation[]
+
+  @@unique([channelName, externalBookingId])
+  @@index([checkInDatetime])
+  @@index([checkOutDatetime])
+  @@index([status])
+  @@index([bookingReference])
+}
+
+model ReservationRoomAllocation {
+  id            String      @id @default(uuid())
+  reservationId String
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id])
+
+  // Effective Stay Dates (Source of Truth)
+  checkInDatetime     DateTime
+  checkOutDatetime    DateTime
+  usesCustomStayDates Boolean  @default(false)
+
+  occupancy Int     @default(1)
+  bedType   String?
+  adults    Int     @default(1)
+  children  Int     @default(0)
+
+  // Money in Integer Minor Units
+  rateAmountMinor  Int     @default(0)
+  totalAmountMinor Int     @default(0)
+  isFoc            Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reservationId])
+  @@index([roomId])
+  @@index([roomId, checkInDatetime])
+  @@index([roomId, checkOutDatetime])
+  @@index([checkInDatetime, checkOutDatetime])
+}
