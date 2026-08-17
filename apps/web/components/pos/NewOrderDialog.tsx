@@ -20,8 +20,8 @@ export function NewOrderDialog({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const fetcher = (url: string) => api.get(url).then(res => res.data);
-  const { data: rooms = [], isLoading: loadingRooms } = useSWR("/rooms/checked-in", fetcher);
-  const { data: walkIns = [], isLoading: loadingWalkIns } = useSWR("/walk-in/active", fetcher);
+  const { data: rooms = [], isLoading: loadingRooms } = useSWR("/rooms/checked-in-basic", fetcher);
+  const { data: walkIns = [], isLoading: loadingWalkIns } = useSWR("/walk-in/active-basic", fetcher);
   
   const loading = loadingRooms || loadingWalkIns;
 

@@ -124,8 +124,7 @@ export class ItemsService {
       this.prisma.item.findMany({
         where: {
           isDeleted: false,
-          isActive: true,
-          useInInvoices: true
+          isActive: true
         },
         select: {
           id: true,

@@ -44,6 +44,39 @@ export class RoomsService {
     });
   }
 
+  async getCheckedInRoomsBasic() {
+    return this.prisma.room.findMany({
+      where: {
+        isDeleted: false,
+        reservations: {
+          some: {
+            status: 'CHECKED_IN',
+            isDeleted: false,
+          },
+        },
+      },
+      select: {
+        id: true,
+        number: true,
+        reservations: {
+          where: {
+            status: 'CHECKED_IN',
+            isDeleted: false,
+          },
+          select: {
+            guest: {
+              select: {
+                firstName: true,
+                lastName: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { number: 'asc' },
+    });
+  }
+
   async getAllRooms() {
     return this.prisma.room.findMany({
       where: { isDeleted: false },

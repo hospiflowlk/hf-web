@@ -27,6 +27,12 @@ export class RoomsController {
     return this.roomsService.getCheckedInRooms();
   }
 
+  @Get('checked-in-basic')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.USER)
+  getCheckedInRoomsBasic() {
+    return this.roomsService.getCheckedInRoomsBasic();
+  }
+
   @Get('recent-checkouts')
   @Roles(Role.ADMIN, Role.MANAGER, Role.USER)
   getRecentCheckouts() {

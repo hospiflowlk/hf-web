@@ -27,6 +27,19 @@ export class WalkInService {
     });
   }
 
+  async findAllActiveBasic() {
+    return this.prisma.walkInSession.findMany({
+      where: { status: 'ACTIVE' },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        referenceNumber: true,
+        guestName: true,
+        guestCount: true,
+      }
+    });
+  }
+
   async checkoutSession(id: string) {
     const session = await this.prisma.walkInSession.findUnique({
       where: { id },

@@ -15,6 +15,11 @@ export class WalkInController {
     return this.walkInService.findAllActive();
   }
 
+  @Get('active-basic')
+  findAllActiveBasic() {
+    return this.walkInService.findAllActiveBasic();
+  }
+
   @Patch(':id/checkout')
   checkoutSession(@Param('id') id: string) {
     return this.walkInService.checkoutSession(id);
