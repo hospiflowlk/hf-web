@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
+import useSWR from "swr";
 import api from "@/lib/api";
 import { Plus, Search, Edit2, Trash2, Users, MoreVertical, FileDown, FileUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,10 +12,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import * as XLSX from "xlsx";
 
 export default function CustomerMasterPage() {
-  const [customers, setCustomers] = useState<any[]>([]);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [isMutating, setIsMutating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: customers = [], isLoading, mutate: fetchCustomers } = useSWR<any[]>("/customers", fetcher);
+  const loading = isLoading || isMutating;
 
   // Form State
   const [isOpen, setIsOpen] = useState(false);
@@ -26,21 +30,6 @@ export default function CustomerMasterPage() {
     address: "",
     taxNumber: "",
   });
-
-  useEffect(() => {
-    fetchCustomers();
-  }, []);
-
-  const fetchCustomers = async () => {
-    try {
-      const res = await api.get("/customers");
-      setCustomers(res.data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const openForm = (customer?: any) => {
     if (customer) {
@@ -76,45 +65,47 @@ export default function CustomerMasterPage() {
         alert("Please enter a Customer Name.");
         return;
       }
+      setIsMutating(true);
       if (editingId) {
         await api.put(`/customers/${editingId}`, formData);
       } else {
         await api.post("/customers", formData);
       }
       closeForm();
-      fetchCustomers();
-    } catch (err: any) {
-      console.warn(err);
-      if (err.response?.status === 409) {
-        alert("A customer with this name already exists.");
-      } else {
-        alert("Failed to save customer.");
-      }
+      await fetchCustomers();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save customer.");
+    } finally {
+      setIsMutating(false);
     }
   };
 
   const deleteCustomer = async (id: string) => {
     if (!confirm("Are you sure you want to delete this customer?")) return;
     try {
+      setIsMutating(true);
       await api.delete(`/customers/${id}`);
-      fetchCustomers();
+      await fetchCustomers();
     } catch (err) {
       console.error(err);
+    } finally {
+      setIsMutating(false);
     }
   };
 
   const handleDeleteAll = async () => {
     if (!confirm("Are you sure you want to delete ALL customers? This action cannot be undone.")) return;
     try {
-      setLoading(true);
-      const ids = customers.map(item => item.id);
+      setIsMutating(true);
+      const ids = customers.map((c: any) => c.id);
       await api.post('/customers/bulk-delete', { ids });
       await fetchCustomers();
     } catch (err) {
       console.error(err);
       alert("Error deleting all customers.");
     } finally {
-      setLoading(false);
+      setIsMutating(false);
     }
   };
 
@@ -140,34 +131,34 @@ export default function CustomerMasterPage() {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        setLoading(true);
+        setIsMutating(true);
         const data = event.target?.result;
         const workbook = XLSX.read(data, { type: "binary" });
         const sheetName = workbook.SheetNames[0];
         if (!sheetName) throw new Error("No sheets found in workbook");
         const worksheet = workbook.Sheets[sheetName];
-        if (!worksheet) throw new Error("Worksheet is undefined");
+        if (!worksheet) throw new Error("Worksheet not found");
         const json: any[] = XLSX.utils.sheet_to_json(worksheet);
 
         for (const row of json) {
           const payload = {
-            name: String(row.Name || row.name || ""),
-            email: String(row.Email || row.email || ""),
-            phone: String(row.Phone || row.phone || ""),
-            address: String(row.Address || row.address || ""),
-            taxNumber: String(row["Tax Number"] || row.taxNumber || row.TaxNumber || row["TIN/VAT"] || ""),
+            name: row.Name || row.name,
+            email: row.Email || row.email || "",
+            phone: row.Phone || row.phone || "",
+            address: row.Address || row.address || "",
+            taxNumber: row["Tax Number"] || row.taxNumber || "",
           };
 
-          if (!payload.name || payload.name.trim() === "" || payload.name === "undefined") continue;
-
-          await api.post("/customers", payload).catch(err => console.warn("Skipped row due to error or duplicate:", err?.response?.data?.message || err.message));
+          if (payload.name) {
+            await api.post("/customers", payload).catch((err) => console.error("Skip dup", err));
+          }
         }
         await fetchCustomers();
       } catch (err) {
         console.error(err);
         alert("Error importing Excel file.");
       } finally {
-        setLoading(false);
+        setIsMutating(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     };

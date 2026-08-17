@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:5000` : 'http://localhost:5000'),
+  baseURL: process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname === 'localhost' ? '127.0.0.1' : window.location.hostname}:5000` : 'http://127.0.0.1:5000'),
   withCredentials: true, // Crucial for HTTP-only cookies
 });
 

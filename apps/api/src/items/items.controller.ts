@@ -5,10 +5,48 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { Role } from '@prisma/client';
 
-@Controller('items')\n@UseGuards(JwtAuthGuard, RolesGuard)\n\n
-
+@Controller('items')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class ItemsController {
   constructor(private readonly itemsService: ItemsService) {}
+
+  @Get('master-data')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.USER)
+  async getMasterData() {
+    const [items, categories, taxes, posCategories] = await Promise.all([
+      this.itemsService.findAll(),
+      this.itemsService.getCategories(),
+      this.itemsService.getTaxes(),
+      this.itemsService['prisma'].posCategory.findMany({ orderBy: { name: 'asc' } }),
+    ]);
+    return { items, categories, taxes, posCategories };
+  }
+
+  @Get('pos-master-data')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.USER)
+  async getPosMasterData() {
+    return this.itemsService.getPosMasterData();
+  }
+
+  @Get('categories')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.USER)
+  getCategories() {
+    return this.itemsService.getCategories();
+  }
+
+  @Get('taxes')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.USER)
+  getTaxes() {
+    return this.itemsService.getTaxes();
+  }
+
+  // bulk-delete must be before :id so NestJS doesn't treat "bulk-delete" as a param
+  @Post('bulk-delete')
+  @Roles(Role.ADMIN, Role.MANAGER)
+  bulkRemove(@Body() body: any) {
+    if (!body.ids || !Array.isArray(body.ids)) return [];
+    return this.itemsService.bulkRemove(body.ids);
+  }
 
   @Get()
   @Roles(Role.ADMIN, Role.MANAGER, Role.USER)
@@ -16,17 +54,8 @@ export class ItemsController {
     return this.itemsService.findAll();
   }
 
-  @Get('categories')
-  getCategories() {
-    return this.itemsService.getCategories();
-  }
-
-  @Get('taxes')
-  getTaxes() {
-    return this.itemsService.getTaxes();
-  }
-
   @Get(':id')
+  @Roles(Role.ADMIN, Role.MANAGER, Role.USER)
   findOne(@Param('id') id: string) {
     return this.itemsService.findOne(id);
   }
@@ -47,12 +76,5 @@ export class ItemsController {
   @Roles(Role.ADMIN, Role.MANAGER)
   remove(@Param('id') id: string) {
     return this.itemsService.remove(id);
-  }
-
-  @Post('bulk-delete')
-  @Roles(Role.ADMIN, Role.MANAGER)
-  bulkRemove(@Body() body: any) {
-    if (!body.ids || !Array.isArray(body.ids)) return [];
-    return this.itemsService.bulkRemove(body.ids);
   }
 }

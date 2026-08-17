@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
+import useSWR from "swr";
 import api from "@/lib/api";
 import { Plus, Search, Edit2, Trash2, Percent, MoreVertical, FileDown, FileUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,10 +15,13 @@ import * as XLSX from "xlsx";
 import { toast } from "react-hot-toast";
 
 export default function TaxMasterPage() {
-  const [taxes, setTaxes] = useState<any[]>([]);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [isMutating, setIsMutating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: taxes = [], isLoading, mutate: fetchTaxes } = useSWR<any[]>("/taxes", fetcher);
+  const loading = isLoading || isMutating;
 
   // Form State
   const [isOpen, setIsOpen] = useState(false);
@@ -31,22 +35,6 @@ export default function TaxMasterPage() {
     isTurnoverTax: false,
     isActive: true,
   });
-
-  useEffect(() => {
-    fetchTaxes();
-  }, []);
-
-  const fetchTaxes = async () => {
-    try {
-      setLoading(true);
-      const res = await api.get("/taxes");
-      setTaxes(res.data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const openForm = (tax?: any) => {
     if (tax) {
@@ -87,37 +75,42 @@ export default function TaxMasterPage() {
       } else {
         await api.post("/taxes", formData);
       }
-      closeForm();
-      fetchTaxes();
+      setIsOpen(false);
+      await fetchTaxes();
       toast.success(editingId ? "Tax updated successfully" : "Tax created successfully");
     } catch (err: any) {
       console.error(err);
       toast.error(err.response?.data?.message || "Failed to save tax. Tax name may already exist.");
+    } finally {
+      setIsMutating(false);
     }
   };
 
   const deleteTax = async (id: string) => {
     if (!confirm("Are you sure you want to delete this tax?")) return;
     try {
+      setIsMutating(true);
       await api.delete(`/taxes/${id}`);
-      fetchTaxes();
+      await fetchTaxes();
     } catch (err) {
       console.error(err);
+    } finally {
+      setIsMutating(false);
     }
   };
 
   const handleDeleteAll = async () => {
     if (!confirm("Are you sure you want to delete ALL taxes? This action cannot be undone.")) return;
     try {
-      setLoading(true);
-      const ids = taxes.map((t) => t.id);
+      setIsMutating(true);
+      const ids = taxes.map((t: any) => t.id);
       await api.post(`/taxes/bulk-delete`, { ids });
       await fetchTaxes();
     } catch (err) {
       console.error(err);
       alert("Error deleting all taxes.");
     } finally {
-      setLoading(false);
+      setIsMutating(false);
     }
   };
 
@@ -145,7 +138,7 @@ export default function TaxMasterPage() {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        setLoading(true);
+        setIsMutating(true);
         const data = event.target?.result;
         const workbook = XLSX.read(data, { type: "binary" });
         const sheetName = workbook.SheetNames[0];
@@ -174,7 +167,7 @@ export default function TaxMasterPage() {
         console.error(err);
         alert("Error importing Excel file.");
       } finally {
-        setLoading(false);
+        setIsMutating(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     };

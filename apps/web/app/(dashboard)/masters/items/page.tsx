@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
+import useSWR from "swr";
 import api from "@/lib/api";
 import { Plus, Search, Edit2, Trash2, Check, MoreVertical, FileDown, FileUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,13 +15,19 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import * as XLSX from "xlsx";
 
 export default function ItemMasterPage() {
-  const [items, setItems] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [posCategories, setPosCategories] = useState<any[]>([]);
-  const [taxes, setTaxes] = useState<any[]>([]);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [isMutating, setIsMutating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: masterData, isLoading: loadingItems, mutate: fetchData } = useSWR<any>("/items/master-data", fetcher);
+  
+  const items: any[] = masterData?.items || [];
+  const categories: any[] = masterData?.categories || [];
+  const taxes: any[] = masterData?.taxes || [];
+  const posCategories: any[] = masterData?.posCategories || [];
+  
+  const loading = loadingItems || isMutating;
 
   // Form State
   const [isOpen, setIsOpen] = useState(false);
@@ -41,29 +48,6 @@ export default function ItemMasterPage() {
     stockQuantity: 0,
     ingredients: [] as { ingredientItemId: string, quantity: string, unit: string }[],
   });
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      const [itemsRes, catRes, taxRes, posCatRes] = await Promise.all([
-        api.get("/items"),
-        api.get("/items/categories"),
-        api.get("/items/taxes"),
-        api.get("/pos-categories"),
-      ]);
-      setItems(itemsRes.data);
-      setCategories(catRes.data);
-      setTaxes(taxRes.data);
-      setPosCategories(posCatRes.data);
-    } catch (err: any) {
-      console.error(err.message || err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const openForm = (item?: any) => {
     if (item) {
@@ -122,6 +106,7 @@ export default function ItemMasterPage() {
     }
 
     try {
+      setIsMutating(true);
       const payload = {
         ...formData,
         posCategoryId: formData.posCategoryId || null,
@@ -141,37 +126,50 @@ export default function ItemMasterPage() {
         await api.post("/items", payload);
       }
       closeForm();
-      fetchData();
+      await fetchData();
       toast.success(editingId ? "Item updated successfully" : "Item created successfully");
     } catch (err: any) {
       console.error(err.message || err);
       toast.error(err.response?.data?.message || "Failed to save item. Item name may already exist.");
+    } finally {
+      setIsMutating(false);
     }
   };
 
   const deleteItem = async (id: string) => {
     if (!confirm("Are you sure you want to delete this item?")) return;
     try {
+      setIsMutating(true);
       await api.delete(`/items/${id}`);
-      fetchData();
+      await fetchData();
     } catch (err: any) {
       console.error(err.message || err);
+    } finally {
+      setIsMutating(false);
     }
   };
 
   const handleDeleteAll = async () => {
     if (!confirm("Are you sure you want to delete ALL items? This action cannot be undone.")) return;
     try {
-      setLoading(true);
-      const ids = items.map(item => item.id);
+      setIsMutating(true);
+      // Always fetch fresh IDs from the API to avoid empty-array bug
+      const res = await api.get('/items');
+      const allItems: any[] = res.data;
+      if (!allItems || allItems.length === 0) {
+        toast.error("No items to delete.");
+        return;
+      }
+      const ids = allItems.map((item: any) => item.id);
       await api.post('/items/bulk-delete', { ids });
       await fetchData();
+      toast.success(`Deleted ${ids.length} items successfully.`);
     } catch (err: any) {
       console.error(err);
       const msg = err.response?.data?.message || err.message || "Unknown error";
       toast.error(`Error deleting all items: ${msg}`);
     } finally {
-      setLoading(false);
+      setIsMutating(false);
     }
   };
 
@@ -206,7 +204,7 @@ export default function ItemMasterPage() {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        setLoading(true);
+        setIsMutating(true);
         const data = event.target?.result;
         const workbook = XLSX.read(data, { type: "binary" });
         const sheetName = workbook.SheetNames[0];
@@ -284,7 +282,7 @@ export default function ItemMasterPage() {
         console.error(err.message || err);
         toast.error("Error importing Excel file.");
       } finally {
-        setLoading(false);
+        setIsMutating(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     };

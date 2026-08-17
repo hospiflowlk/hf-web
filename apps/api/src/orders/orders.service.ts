@@ -282,6 +282,7 @@ export class OrdersService {
           { orderType: 'LEGACY' }
         ]
       },
+      take: 100,
       include: {
         items: { include: { item: true } },
         walkInSession: true,

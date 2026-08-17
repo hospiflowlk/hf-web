@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -18,30 +19,11 @@ import api from "@/lib/api";
 export function NewOrderDialog({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [rooms, setRooms] = useState<any[]>([]);
-  const [walkIns, setWalkIns] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      fetchData();
-    }
-  }, [open]);
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const [roomsRes, walkInsRes] = await Promise.all([
-        api.get("/rooms/checked-in"),
-        api.get("/walk-in/active")
-      ]);
-      setRooms(roomsRes.data || []);
-      setWalkIns(walkInsRes.data || []);
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(false);
-  };
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: rooms = [], isLoading: loadingRooms } = useSWR("/rooms/checked-in", fetcher);
+  const { data: walkIns = [], isLoading: loadingWalkIns } = useSWR("/walk-in/active", fetcher);
+  
+  const loading = loadingRooms || loadingWalkIns;
 
   const handleSelectRoom = (roomId: string, roomNum: string) => {
     setOpen(false);

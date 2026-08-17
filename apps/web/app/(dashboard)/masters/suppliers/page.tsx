@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
+import useSWR from "swr";
 import api from "@/lib/api";
 import { Plus, Search, Edit2, Trash2, Truck, MoreVertical, FileDown, FileUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,10 +13,13 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import * as XLSX from "xlsx";
 
 export default function SupplierMasterPage() {
-  const [suppliers, setSuppliers] = useState<any[]>([]);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [isMutating, setIsMutating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: suppliers = [], isLoading, mutate: fetchSuppliers } = useSWR<any[]>("/suppliers", fetcher);
+  const loading = isLoading || isMutating;
 
   // Form State
   const [isOpen, setIsOpen] = useState(false);
@@ -32,21 +36,6 @@ export default function SupplierMasterPage() {
     branch: "",
     isActive: true,
   });
-
-  useEffect(() => {
-    fetchSuppliers();
-  }, []);
-
-  const fetchSuppliers = async () => {
-    try {
-      const res = await api.get("/suppliers");
-      setSuppliers(res.data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const openForm = (supplier?: any) => {
     if (supplier) {
@@ -92,45 +81,47 @@ export default function SupplierMasterPage() {
         alert("Please enter a Supplier Name.");
         return;
       }
+      setIsMutating(true);
       if (editingId) {
         await api.put(`/suppliers/${editingId}`, formData);
       } else {
         await api.post("/suppliers", formData);
       }
       closeForm();
-      fetchSuppliers();
-    } catch (err: any) {
-      console.warn(err);
-      if (err.response?.status === 409) {
-        alert("A supplier with this name already exists.");
-      } else {
-        alert("Failed to save supplier.");
-      }
+      await fetchSuppliers();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save supplier.");
+    } finally {
+      setIsMutating(false);
     }
   };
 
   const deleteSupplier = async (id: string) => {
     if (!confirm("Are you sure you want to delete this supplier?")) return;
     try {
+      setIsMutating(true);
       await api.delete(`/suppliers/${id}`);
-      fetchSuppliers();
+      await fetchSuppliers();
     } catch (err) {
       console.error(err);
+    } finally {
+      setIsMutating(false);
     }
   };
 
   const handleDeleteAll = async () => {
     if (!confirm("Are you sure you want to delete ALL suppliers? This action cannot be undone.")) return;
     try {
-      setLoading(true);
-      const ids = suppliers.map(item => item.id);
+      setIsMutating(true);
+      const ids = suppliers.map((c: any) => c.id);
       await api.post('/suppliers/bulk-delete', { ids });
       await fetchSuppliers();
     } catch (err) {
       console.error(err);
       alert("Error deleting all suppliers.");
     } finally {
-      setLoading(false);
+      setIsMutating(false);
     }
   };
 
@@ -161,39 +152,39 @@ export default function SupplierMasterPage() {
     const reader = new FileReader();
     reader.onload = async (event) => {
       try {
-        setLoading(true);
+        setIsMutating(true);
         const data = event.target?.result;
         const workbook = XLSX.read(data, { type: "binary" });
         const sheetName = workbook.SheetNames[0];
         if (!sheetName) throw new Error("No sheets found in workbook");
         const worksheet = workbook.Sheets[sheetName];
-        if (!worksheet) throw new Error("Worksheet is undefined");
+        if (!worksheet) throw new Error("Worksheet not found");
         const json: any[] = XLSX.utils.sheet_to_json(worksheet);
 
         for (const row of json) {
           const payload = {
-            name: String(row.Name || row.name || ""),
-            email: String(row.Email || row.email || ""),
-            phone: String(row.Phone || row.phone || ""),
-            address: String(row.Address || row.address || ""),
-            taxNumber: String(row["Tax Number"] || row.taxNumber || row.TaxNumber || ""),
-            bankName: String(row["Bank Name"] || row.bankName || ""),
-            accountName: String(row["Account Name"] || row.accountName || ""),
-            accountNumber: String(row["Account Number"] || row.accountNumber || ""),
-            branch: String(row.Branch || row.branch || ""),
+            name: row.Name || row.name,
+            email: row.Email || row.email || "",
+            phone: row.Phone || row.phone || "",
+            address: row.Address || row.address || "",
+            taxNumber: row["Tax Number"] || row.taxNumber || "",
+            bankName: row["Bank Name"] || row.bankName || "",
+            accountName: row["Account Name"] || row.accountName || "",
+            accountNumber: row["Account Number"] || row.accountNumber || "",
+            branch: row.Branch || row.branch || "",
             isActive: row.Active === "No" || row.active === "No" ? false : true,
           };
 
-          if (!payload.name || payload.name.trim() === "" || payload.name === "undefined") continue;
-
-          await api.post("/suppliers", payload).catch(err => console.warn("Skipped row due to error or duplicate:", err?.response?.data?.message || err.message));
+          if (payload.name) {
+            await api.post("/suppliers", payload).catch((err) => console.error("Skip dup", err));
+          }
         }
         await fetchSuppliers();
       } catch (err) {
         console.error(err);
         alert("Error importing Excel file.");
       } finally {
-        setLoading(false);
+        setIsMutating(false);
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     };

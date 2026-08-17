@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useRef } from "react";
+import useSWR from "swr";
 import api from "@/lib/api";
 import { Plus, Search, Edit2, Trash2, Tag, Loader2, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,9 +10,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Label } from "@/components/ui/label";
 
 export default function PosCategoryMasterPage() {
-  const [categories, setCategories] = useState<any[]>([]);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [isMutating, setIsMutating] = useState(false);
+
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: categories = [], isLoading, mutate: fetchCategories } = useSWR<any[]>("/pos-categories", fetcher);
+  const loading = isLoading || isMutating;
 
   // Form State
   const [isOpen, setIsOpen] = useState(false);
@@ -19,21 +23,6 @@ export default function PosCategoryMasterPage() {
   const [formData, setFormData] = useState({
     name: "",
   });
-
-  useEffect(() => {
-    fetchCategories();
-  }, []);
-
-  const fetchCategories = async () => {
-    try {
-      const res = await api.get("/pos-categories");
-      setCategories(res.data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const openForm = (cat?: any) => {
     if (cat) {
@@ -57,27 +46,33 @@ export default function PosCategoryMasterPage() {
 
   const saveCategory = async () => {
     try {
+      setIsMutating(true);
       if (editingId) {
         await api.put(`/pos-categories/${editingId}`, formData);
       } else {
         await api.post("/pos-categories", formData);
       }
       closeForm();
-      fetchCategories();
+      await fetchCategories();
     } catch (err) {
       console.error(err);
       alert("Failed to save POS category.");
+    } finally {
+      setIsMutating(false);
     }
   };
 
   const deleteCategory = async (id: string) => {
     if (!confirm("Are you sure you want to delete this POS category?")) return;
     try {
+      setIsMutating(true);
       await api.delete(`/pos-categories/${id}`);
-      fetchCategories();
+      await fetchCategories();
     } catch (err) {
       console.error(err);
       alert("Failed to delete POS category.");
+    } finally {
+      setIsMutating(false);
     }
   };
 
@@ -93,13 +88,14 @@ export default function PosCategoryMasterPage() {
     [newCategories[index], newCategories[swapIndex]] = [newCategories[swapIndex], newCategories[index]];
     
     // Update local state immediately for snappy UI
-    setCategories(newCategories);
+    fetchCategories(newCategories, false);
 
     // Call API in background
     try {
       await api.post('/pos-categories/reorder', {
         orderedIds: newCategories.map(c => c.id)
       });
+      fetchCategories(); // Revalidate with server after
     } catch (err) {
       console.error(err);
       alert("Failed to save new order.");

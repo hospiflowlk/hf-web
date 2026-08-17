@@ -15,6 +15,7 @@ export class ItemsService {
         compositeOf: { include: { ingredient: true } },
         ingredientIn: { include: { compositeItem: true } }
       },
+      orderBy: { createdAt: 'asc' }
     });
   }
 
@@ -114,6 +115,51 @@ export class ItemsService {
 
   async getCategories() {
     return this.prisma.category.findMany({ where: { isActive: true } });
+  }
+
+  async getPosMasterData() {
+    const [posCategories, taxes, items] = await Promise.all([
+      this.prisma.posCategory.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.tax.findMany({ where: { isActive: true } }),
+      this.prisma.item.findMany({
+        where: {
+          isDeleted: false,
+          isActive: true,
+          useInInvoices: true
+        },
+        select: {
+          id: true,
+          name: true,
+          trackStock: true,
+          stockQuantity: true,
+          defaultPrice: true,
+          posCategory: {
+            select: { name: true }
+          },
+          exemptTaxes: {
+            select: { id: true }
+          }
+        },
+        orderBy: { createdAt: 'asc' }
+      })
+    ]);
+
+    // Map items to the format expected by the frontend POS
+    const mappedItems = items.map(item => ({
+      id: item.id,
+      name: item.name,
+      category: item.posCategory?.name || "Uncategorized",
+      quantity: item.trackStock ? item.stockQuantity : 999,
+      unitPrice: item.defaultPrice || 0,
+      exemptTaxIds: item.exemptTaxes.map(t => t.id),
+      trackStock: item.trackStock
+    }));
+
+    return {
+      posCategories,
+      taxes,
+      items: mappedItems
+    };
   }
 
   async getTaxes() {

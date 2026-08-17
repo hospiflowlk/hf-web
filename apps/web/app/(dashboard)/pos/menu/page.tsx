@@ -66,25 +66,11 @@ function POSContent() {
 
   const fetchItems = async () => {
     try {
-      const [res, catRes, taxRes] = await Promise.all([
-        api.get("/items"),
-        api.get("/pos-categories"),
-        api.get("/taxes")
-      ]);
-      setPosCategories(catRes.data);
-      setTaxes(taxRes.data.filter((t: any) => t.isActive));
-
-      const mapped = res.data
-        .filter((item: any) => item.useInInvoices && item.isActive !== false)
-        .map((item: any) => ({
-          id: item.id,
-          name: item.name,
-          category: item.posCategory?.name || "Uncategorized",
-          quantity: item.trackStock ? item.stockQuantity : 999,
-          unitPrice: item.defaultPrice || 0,
-          exemptTaxIds: item.exemptTaxes?.map((t: any) => t.id) || [],
-          trackStock: item.trackStock
-        }));
+      const res = await api.get("/items/pos-master-data");
+      const { items: mapped, posCategories: catData, taxes: taxData } = res.data;
+      
+      setPosCategories(catData);
+      setTaxes(taxData);
       setItems(mapped);
     } catch (err) {
       console.error(err);

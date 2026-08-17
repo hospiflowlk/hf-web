@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import api from "@/lib/api";
 import { Plus, Edit2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,8 +11,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
 export default function BusinessSourcesPage() {
-  const [sources, setSources] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isMutating, setIsMutating] = useState(false);
+
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: sources = [], isLoading, mutate: fetchSources } = useSWR<any[]>("/business-sources", fetcher);
+  const loading = isLoading || isMutating;
 
   // Form State
   const [isOpen, setIsOpen] = useState(false);
@@ -21,21 +25,6 @@ export default function BusinessSourcesPage() {
     commissionRate: 0,
     isActive: true,
   });
-
-  useEffect(() => {
-    fetchSources();
-  }, []);
-
-  const fetchSources = async () => {
-    try {
-      const res = await api.get("/business-sources");
-      setSources(res.data);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const openForm = (source?: any) => {
     if (source) {
@@ -68,6 +57,7 @@ export default function BusinessSourcesPage() {
         return;
       }
       
+      setIsMutating(true);
       const payload = {
         ...formData,
         commissionRate: parseFloat(String(formData.commissionRate)) || 0
@@ -79,36 +69,40 @@ export default function BusinessSourcesPage() {
         await api.post("/business-sources", payload);
       }
       closeForm();
-      fetchSources();
-    } catch (err: any) {
-      console.warn(err);
-      if (err.response?.status === 409) {
-        alert("A business source with this name already exists.");
-      } else {
-        alert("Failed to save business source.");
-      }
+      await fetchSources();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save business source.");
+    } finally {
+      setIsMutating(false);
     }
   };
 
   const toggleActive = async (source: any) => {
     try {
+      setIsMutating(true);
       await api.put(`/business-sources/${source.id}`, {
         isActive: !source.isActive
       });
-      fetchSources();
+      await fetchSources();
     } catch (err) {
       console.error("Failed to toggle status", err);
+    } finally {
+      setIsMutating(false);
     }
   };
 
   const deleteSource = async (id: string) => {
     if (!confirm("Are you sure you want to delete this business source?")) return;
     try {
+      setIsMutating(true);
       await api.delete(`/business-sources/${id}`);
-      fetchSources();
+      await fetchSources();
     } catch (err: any) {
-      console.error("Failed to delete", err);
+      console.error(err);
       alert(err.response?.data?.message || "Failed to delete business source. It may be in use.");
+    } finally {
+      setIsMutating(false);
     }
   };
 
