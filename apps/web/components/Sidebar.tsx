@@ -81,12 +81,45 @@ export function Sidebar() {
     setExpandedMenus(prev => ({ ...prev, [href]: !prev[href] }));
   };
 
+  const [userName, setUserName] = useState<string>("User");
+  const [userRole, setUserRole] = useState<string>("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("hf_user_name");
+      const storedRole = localStorage.getItem("hf_user_role");
+      if (stored) {
+        setUserName(stored);
+        if (storedRole) setUserRole(storedRole);
+      } else {
+        const token = localStorage.getItem("hf_access_token");
+        if (token && token.includes(".")) {
+          try {
+            const parts = token.split(".");
+            if (parts[1]) {
+              const payload = JSON.parse(atob(parts[1]));
+              if (payload?.name) setUserName(payload.name);
+              if (payload?.role) setUserRole(payload.role);
+            }
+          } catch (e) {}
+        }
+
+      }
+    }
+  }, []);
+
   const handleLogout = async () => {
     try {
       await api.post("/auth/logout");
-      router.push("/login");
     } catch (err) {
       console.error("Logout failed", err);
+    } finally {
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("hf_access_token");
+        localStorage.removeItem("hf_user_name");
+        localStorage.removeItem("hf_user_role");
+      }
+      router.push("/login");
     }
   };
 
@@ -104,6 +137,7 @@ export function Sidebar() {
     };
     fetchCurrencies();
   }, []);
+
 
   const marketRate = 334.67;
   const currentUsdRate = usdRate !== null ? usdRate : 337.00;
@@ -226,17 +260,19 @@ export function Sidebar() {
       {/* User Profile Footer */}
       <div className="p-4 border-t border-border flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center text-muted-foreground">
-            <UserCircle className="w-5 h-5" />
+          <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs">
+            {userName ? userName.substring(0, 2).toUpperCase() : "U"}
           </div>
-          <div>
-            <p className="text-sm font-semibold">admin</p>
+          <div className="flex flex-col">
+            <p className="text-sm font-semibold capitalize text-foreground">{userName}</p>
+            {userRole && <p className="text-[10px] text-muted-foreground uppercase">{userRole}</p>}
           </div>
         </div>
-        <button onClick={handleLogout} className="text-muted-foreground hover:text-destructive transition-colors">
+        <button onClick={handleLogout} className="text-muted-foreground hover:text-destructive transition-colors" title="Log Out">
           <LogOut className="w-5 h-5" />
         </button>
       </div>
+
       <div className="px-4 pb-4 text-center">
         <p className="text-[10px] text-muted-foreground">License valid until: Aug 11, 2026</p>
       </div>

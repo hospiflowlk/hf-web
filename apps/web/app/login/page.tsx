@@ -43,8 +43,16 @@ export default function LoginPage() {
       if (res.data?.access_token) {
         localStorage.setItem('hf_access_token', res.data.access_token);
       }
+      const loggedInName = res.data?.user?.name || values.name;
+      if (loggedInName) {
+        localStorage.setItem('hf_user_name', loggedInName);
+      }
+      if (res.data?.user?.role) {
+        localStorage.setItem('hf_user_role', res.data.user.role);
+      }
       router.push("/dashboard");
     } catch (err: any) {
+
       setError(err.response?.data?.message || "Invalid name or PIN");
     }
   }
