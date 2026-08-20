@@ -310,54 +310,66 @@ export class OrdersService {
   async getOrderHistory() {
     const orders = await this.prisma.order.findMany({
       where: {
-        status: { in: ['PENDING', 'PREPARING', 'SERVED', 'PAID', 'CANCELLED'] },
-        isDeleted: false,
-        OR: [
-          { orderType: 'WALK_IN' },
-          {
-            orderType: 'ROOM',
-            legacyReservation: {
-              isDeleted: false
-            }
-          },
-          { orderType: 'LEGACY' }
-        ]
+        isDeleted: false
       },
       take: 100,
-      include: {
-        items: { include: { item: true } },
-        walkInSession: true,
-        
+      select: {
+        id: true,
+        orderType: true,
+        status: true,
+        paymentMethod: true,
+        createdAt: true,
+        subtotal: true,
+        tax: true,
+        total: true,
+        originalTotal: true,
+        items: {
+          select: {
+            id: true,
+            quantity: true,
+            unitPrice: true,
+            totalPrice: true,
+            note: true,
+            item: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        walkInSession: {
+          select: {
+            id: true,
+            guestName: true,
+            referenceNumber: true
+          }
+        },
         legacyReservation: {
-          include: {
-            room: true,
-            guest: true
+          select: {
+            id: true,
+            room: {
+              select: {
+                id: true,
+                number: true
+              }
+            },
+            guest: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true
+              }
+            }
           }
         }
       },
       orderBy: { createdAt: 'desc' }
     });
 
-    // Backwards compatibility for old orders that only have roomId
-    const roomIds = orders.filter(o => o.roomId && !o.legacyReservation).map(o => o.roomId as string);
-    if (roomIds.length > 0) {
-      const rooms = await this.prisma.room.findMany({
-        where: { id: { in: roomIds } }
-      });
-      const roomMap = new Map(rooms.map(r => [r.id, r]));
-      
-      orders.forEach(o => {
-        if (o.roomId && !o.legacyReservation) {
-          const room = roomMap.get(o.roomId);
-          if (room) {
-            (o as any).legacyReservation = { room, guest: { firstName: 'Unknown', lastName: 'Guest' } };
-          }
-        }
-      });
-    }
-
     return orders;
   }
+
 
   async deleteOrder(id: string) {
     const order = await this.prisma.order.findUnique({ where: { id } });

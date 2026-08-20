@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { History, ArrowLeft, Download, Trash2, Eye, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,25 +10,17 @@ import Link from "next/link";
 import api from "@/lib/api";
 
 export default function OrderHistoryPage() {
-  const [orders, setOrders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedOrder, setSelectedOrder] = useState<any>(null);
-
-  useEffect(() => {
-    fetchOrders();
-  }, []);
-
-  const fetchOrders = async () => {
-    setLoading(true);
-    try {
-      const res = await api.get("/orders/history");
-      console.log("Orders API Response:", res.data);
-      setOrders(res.data);
-    } catch (e) {
-      console.error(e);
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: orders = [], isLoading, mutate } = useSWR<any[]>(
+    "/orders/history",
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 15000,
     }
-    setLoading(false);
-  };
+  );
+
+  const [selectedOrder, setSelectedOrder] = useState<any>(null);
 
   const handleWhatsApp = (order: any) => {
     if (!order.items || order.items.length === 0) return;
@@ -35,7 +28,7 @@ export default function OrderHistoryPage() {
     const now = new Date(order.createdAt);
     const dateStr = now.toISOString().split('T')[0];
     const timeStr = now.toTimeString().split(' ')[0];
-    const staffName = typeof window !== 'undefined' ? (localStorage.getItem('userName') || localStorage.getItem('userEmail') || 'Staff') : 'Staff';
+    const staffName = typeof window !== 'undefined' ? (localStorage.getItem('hf_user_name') || 'Staff') : 'Staff';
     
     let roomText = "N/A";
     let guestText = "Walk-In";
@@ -58,8 +51,6 @@ export default function OrderHistoryPage() {
     msg += `Guest: ${guestText}\n`;
     msg += `Total items: ${order.items.reduce((s:number, i:any) => s + i.quantity, 0)}\n\n`;
 
-    // Attempt simple group by item name for repriting since category might not be fully populated here,
-    // or just list them. We'll group them into a single [Items] block.
     msg += `[Items]\n`;
     order.items.forEach((oi: any) => {
       msg += `${oi.quantity}x ${oi.item?.name || 'Unknown Item'} ${isHB ? '(HB)' : ''}\n`.replace('  ', ' ');
@@ -89,8 +80,23 @@ export default function OrderHistoryPage() {
         </div>
       </div>
 
-      {loading ? (
-        <p className="text-muted-foreground">Loading history...</p>
+      {isLoading && orders.length === 0 ? (
+        <div className="space-y-4">
+          {Array.from({ length: 6 }).map((_, idx) => (
+            <Card key={idx} className="animate-pulse">
+              <CardContent className="p-4 flex items-center justify-between">
+                <div className="space-y-2 w-1/2">
+                  <div className="h-4 bg-slate-200 rounded w-1/3"></div>
+                  <div className="h-3 bg-slate-100 rounded w-2/3"></div>
+                </div>
+                <div className="space-y-2 flex flex-col items-end w-24">
+                  <div className="h-5 bg-slate-200 rounded w-16"></div>
+                  <div className="h-4 bg-slate-100 rounded w-12"></div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ) : orders.length === 0 ? (
         <Card>
           <CardContent className="py-12 flex flex-col items-center text-muted-foreground">
@@ -100,6 +106,7 @@ export default function OrderHistoryPage() {
         </Card>
       ) : (
         <div className="space-y-4">
+
           {orders.map((order: any) => (
             <Card key={order.id} className="hover:bg-slate-50 transition-colors">
               <CardContent className="p-4 flex items-center justify-between">
@@ -160,13 +167,14 @@ export default function OrderHistoryPage() {
                           if(confirm("Are you sure you want to void/delete this order?")) {
                             try {
                               await api.delete(`/orders/${order.id}`);
-                              fetchOrders();
+                              mutate();
                             } catch (e) {
                               console.error(e);
                               alert("Failed to delete order");
                             }
                           }
                         }}
+
                         title="Void Order"
                       >
                         <Trash2 className="w-5 h-5" />
