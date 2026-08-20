@@ -67,19 +67,25 @@ export default function EditInvoicePage() {
   const [activeTab, setActiveTab] = useState<'summary' | 'preview'>('summary');
 
   useEffect(() => {
-    if (items.length > 0 && taxes.length > 0 && sources.length > 0 && customersData.length > 0 && loadedInvoice) {
-      setInvoiceNum(loadedInvoice.invoiceNum);
-      setCurrency(loadedInvoice.currency);
-      setInvoiceDate(loadedInvoice.invoiceDate ? loadedInvoice.invoiceDate.split('T')[0] : "");
+    if (loadedInvoice) {
+      setInvoiceNum(loadedInvoice.invoiceNum || "");
+      setCurrency(loadedInvoice.currency || "USD");
+      setInvoiceDate(loadedInvoice.invoiceDate ? loadedInvoice.invoiceDate.split('T')[0] : new Date().toISOString().split('T')[0]);
       setGuestName(loadedInvoice.guestName || "");
-      setBusinessSource(loadedInvoice.businessSource || "");
+      setBusinessSource(loadedInvoice.businessSource || (sources.length > 0 ? sources[0].name : "Direct"));
       setRoundOff(loadedInvoice.roundOff || 0);
       setGlobalDiscount(loadedInvoice.globalDiscount || 0);
       setLines(loadedInvoice.items || []);
-      setCustomers(customersData);
       setMastersLoaded(true);
     }
-  }, [items, taxes, sources, customersData, loadedInvoice]);
+  }, [loadedInvoice, sources]);
+
+  useEffect(() => {
+    if (customersData) {
+      setCustomers(customersData);
+    }
+  }, [customersData]);
+
 
   const handleItemSelect = (val: string) => {
     setSelectedItemId(val);
@@ -237,10 +243,7 @@ export default function EditInvoicePage() {
       return;
     }
 
-    if (!businessSource) {
-      alert("Please select a business source.");
-      return;
-    }
+    const finalBusinessSource = businessSource || "Direct";
 
     try {
       const payload = {
@@ -248,8 +251,9 @@ export default function EditInvoicePage() {
         currency,
         invoiceDate,
         guestName,
-        businessSource,
+        businessSource: finalBusinessSource,
         isDraft,
+
         status,
         roundOff,
         globalDiscount,
@@ -348,15 +352,17 @@ export default function EditInvoicePage() {
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-teal-600 uppercase">Business Source *</label>
-                  <Select value={businessSource} onValueChange={setBusinessSource}>
+                  <Select value={businessSource || "Direct"} onValueChange={setBusinessSource}>
                     <SelectTrigger className="bg-white border-teal-200 focus:ring-teal-500"><SelectValue placeholder="Select Source" /></SelectTrigger>
                     <SelectContent>
-                      {sources.filter((s: any) => s.isActive !== false).map((source: any) => (
+                      <SelectItem value="Direct">Direct</SelectItem>
+                      {sources.filter((s: any) => s.isActive !== false && s.name !== "Direct").map((source: any) => (
                         <SelectItem key={source.id} value={source.name}>{source.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
+
               </div>
             </div>
 
