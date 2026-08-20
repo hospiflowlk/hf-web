@@ -253,12 +253,14 @@ export default function EditExpensePage() {
   
   const [settleDialogOpen, setSettleDialogOpen] = useState(false);
   const [mastersLoaded, setMastersLoaded] = useState(false);
+  const [loading, setLoading] = useState(false);
   
   const fetcher = (url: string) => api.get(url).then(res => res.data);
-  const { data: suppliers = [] } = useSWR("/suppliers", fetcher);
-  const { data: items = [] } = useSWR("/items", fetcher);
-  const { data: categories = [] } = useSWR("/categories", fetcher);
-  const { data: loadedExpense } = useSWR(id ? `/expenses/${id}` : null, fetcher);
+  const { data: suppliers = [] } = useSWR<any[]>("/suppliers", fetcher);
+  const { data: items = [] } = useSWR<any[]>("/items", fetcher);
+  const { data: categories = [] } = useSWR<any[]>("/categories", fetcher);
+  const { data: loadedExpense, mutate: mutateExpense } = useSWR<any>(id ? `/expenses/${id}` : null, fetcher);
+
 
   const { register, control, handleSubmit, setValue, reset, formState: { errors } } = useForm<ExpenseFormValues>({
     defaultValues: {
@@ -362,7 +364,7 @@ export default function EditExpensePage() {
       if (data.status === 'Paid' && !autoSettle) {
         // If they just manually toggled to paid on the edit form
         router.replace(`/expenses/${id}/edit?settle=true`);
-        setLoadedExpense(res.data);
+        mutateExpense(res.data);
         setSettleDialogOpen(true);
       } else {
         router.push("/expenses");
@@ -647,7 +649,7 @@ export default function EditExpensePage() {
                 await api.put(`/expenses/${loadedExpense.id}`, { ...loadedExpense, status: 'Unpaid' });
                 alert("Status reverted to UNPAID since no payment was recorded.");
                 router.replace(`/expenses/${loadedExpense.id}/edit`);
-                fetchExpenseData();
+                mutateExpense();
               } else {
                 router.push('/expenses');
               }
@@ -657,10 +659,11 @@ export default function EditExpensePage() {
           }
         }} 
         onSuccess={() => {
-          fetchExpenseData();
+          mutateExpense();
           router.push('/expenses');
         }} 
       />
     </div>
   );
 }
+

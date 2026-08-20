@@ -25,19 +25,17 @@ export default function EditInvoicePage() {
   const { id } = useParams();
   
   // Master Data
-  const [items, setItems] = useState<any[]>([]);
-  const [taxes, setTaxes] = useState<any[]>([]);
-  const [sources, setSources] = useState<any[]>([]);
   const [customers, setCustomers] = useState<any[]>([]);
   const [showGuestDropdown, setShowGuestDropdown] = useState(false);
   const [mastersLoaded, setMastersLoaded] = useState(false);
   
   const fetcher = (url: string) => api.get(url).then(res => res.data);
-  const { data: items = [] } = useSWR("/items", fetcher);
-  const { data: taxes = [] } = useSWR("/taxes", fetcher);
-  const { data: sources = [] } = useSWR("/business-sources", fetcher);
-  const { data: customersData = [] } = useSWR("/customers", fetcher);
-  const { data: loadedInvoice } = useSWR(id ? `/invoices/${id}` : null, fetcher);
+  const { data: items = [] } = useSWR<any[]>("/items", fetcher);
+  const { data: taxes = [] } = useSWR<any[]>("/taxes", fetcher);
+  const { data: sources = [] } = useSWR<any[]>("/business-sources", fetcher);
+  const { data: customersData = [] } = useSWR<any[]>("/customers", fetcher);
+  const { data: loadedInvoice } = useSWR<any>(id ? `/invoices/${id}` : null, fetcher);
+
   
   // Invoice Header
   const [invoiceNum, setInvoiceNum] = useState("");

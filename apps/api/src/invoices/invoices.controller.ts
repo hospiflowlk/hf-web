@@ -7,13 +7,20 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
+  // Must be declared before :id to avoid route capture
+  @Get('summary')
+  getSummary() {
+    return this.invoicesService.getSummary();
+  }
+
   @Get()
   findAll(
     @Query('cursor') cursor?: string,
-    @Query('limit') limit?: string
+    @Query('limit') limit?: string,
+    @Query('search') search?: string,
   ) {
     const parsedLimit = limit ? parseInt(limit, 10) : 50;
-    return this.invoicesService.findAll(cursor, parsedLimit);
+    return this.invoicesService.findAll(cursor, parsedLimit, search);
   }
 
   @Get(':id')

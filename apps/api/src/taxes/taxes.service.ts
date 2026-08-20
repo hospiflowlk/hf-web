@@ -1,20 +1,40 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+// Simple in-process TTL cache
+interface CacheEntry<T> { data: T; expiresAt: number }
+function createCache<T>(ttlMs: number) {
+  let entry: CacheEntry<T> | null = null;
+  return {
+    get(): T | null {
+      if (entry && Date.now() < entry.expiresAt) return entry.data;
+      return null;
+    },
+    set(data: T) { entry = { data, expiresAt: Date.now() + ttlMs }; },
+    invalidate() { entry = null; },
+  };
+}
+
 @Injectable()
 export class TaxesService {
   constructor(private prisma: PrismaService) {}
 
+  // 60-second cache — taxes change very rarely (admin-only setting)
+  private taxListCache = createCache<any[]>(60_000);
+
   async findAll() {
-    return this.prisma.tax.findMany({
+    const cached = this.taxListCache.get();
+    if (cached) return cached;
+
+    const taxes = await this.prisma.tax.findMany({
       orderBy: { calculationOrder: 'asc' }
     });
+    this.taxListCache.set(taxes);
+    return taxes;
   }
 
   async findOne(id: string) {
-    const tax = await this.prisma.tax.findUnique({
-      where: { id },
-    });
+    const tax = await this.prisma.tax.findUnique({ where: { id } });
     if (!tax) throw new NotFoundException('Tax not found');
     return tax;
   }
@@ -24,9 +44,9 @@ export class TaxesService {
     if (data.calculationOrder) data.calculationOrder = parseInt(data.calculationOrder, 10);
     
     try {
-      return await this.prisma.tax.create({
-        data,
-      });
+      const tax = await this.prisma.tax.create({ data });
+      this.taxListCache.invalidate();
+      return tax;
     } catch (error: any) {
       if (error.code === 'P2002') {
         throw new ConflictException('A tax with this name already exists.');
@@ -40,10 +60,9 @@ export class TaxesService {
     if (data.calculationOrder) data.calculationOrder = parseInt(data.calculationOrder, 10);
 
     try {
-      return await this.prisma.tax.update({
-        where: { id },
-        data,
-      });
+      const tax = await this.prisma.tax.update({ where: { id }, data });
+      this.taxListCache.invalidate();
+      return tax;
     } catch (error: any) {
       if (error.code === 'P2002') {
         throw new ConflictException('A tax with this name already exists.');
@@ -53,11 +72,12 @@ export class TaxesService {
   }
 
   async remove(id: string) {
-    // Soft delete
-    return this.prisma.tax.update({
+    const tax = await this.prisma.tax.update({
       where: { id },
       data: { isActive: false },
     });
+    this.taxListCache.invalidate();
+    return tax;
   }
 
   async bulkRemove(ids: string[]) {
@@ -67,17 +87,15 @@ export class TaxesService {
 
     if (records.length === 0) return;
 
-    const timestamp = Date.now();
-    
-    return this.prisma.$transaction(
-      records.map((record, index) => 
+    const result = await this.prisma.$transaction(
+      records.map((record) =>
         this.prisma.tax.update({
           where: { id: record.id },
-          data: {
-            isActive: false
-          }
+          data: { isActive: false }
         })
       )
     );
+    this.taxListCache.invalidate();
+    return result;
   }
 }

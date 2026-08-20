@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Prisma } from '@prisma/client';
 
 const round2 = (val: any) => Number((parseFloat(val) || 0).toFixed(2));
 
@@ -7,11 +8,22 @@ const round2 = (val: any) => Number((parseFloat(val) || 0).toFixed(2));
 export class ExpensesService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(cursor?: string, limit: number = 50) {
+  async findAll(cursor?: string, limit: number = 50, search?: string) {
+    // Server-side search: filter by reference or supplier name via JOIN
+    const where: Prisma.ExpenseWhereInput = search
+      ? {
+          OR: [
+            { reference: { contains: search, mode: 'insensitive' } },
+            { supplier: { name: { contains: search, mode: 'insensitive' } } },
+          ],
+        }
+      : {};
+
     const data = await this.prisma.expense.findMany({
       take: limit,
       skip: cursor ? 1 : 0,
       cursor: cursor ? { id: cursor } : undefined,
+      where,
       orderBy: [
         { expenseDate: 'desc' },
         { id: 'desc' }
@@ -24,6 +36,33 @@ export class ExpensesService {
 
     const nextCursor = data.length === limit ? data[data.length - 1].id : null;
     return { data, nextCursor };
+  }
+
+  async getSummary() {
+    // Aggregated summary for the dashboard — no full record fetching
+    const [unpaid, partial, paid] = await Promise.all([
+      this.prisma.expense.aggregate({
+        where: { status: 'Unpaid' },
+        _count: { id: true },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.expense.aggregate({
+        where: { status: 'Partial' },
+        _count: { id: true },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.expense.aggregate({
+        where: { status: 'Paid' },
+        _count: { id: true },
+        _sum: { totalAmount: true },
+      }),
+    ]);
+
+    return {
+      unpaid:  { count: unpaid._count.id,  total: round2(unpaid._sum.totalAmount  || 0) },
+      partial: { count: partial._count.id, total: round2(partial._sum.totalAmount || 0) },
+      paid:    { count: paid._count.id,    total: round2(paid._sum.totalAmount    || 0) },
+    };
   }
 
   async findOne(id: string) {
@@ -52,7 +91,6 @@ export class ExpensesService {
           description: data.description,
           note: data.note,
           expenseDate: data.expenseDate ? new Date(data.expenseDate) : new Date(),
-          
           items: {
             create: data.items.map((item: any) => ({
               itemId: item.itemId,
@@ -70,12 +108,14 @@ export class ExpensesService {
         include: { items: true }
       });
 
-      // Update inventory stock for items
+      // --- FIX: Single batch query for tracked items ---
       const itemIds = data.items.filter((i: any) => i.itemId).map((i: any) => i.itemId);
       if (itemIds.length > 0) {
-        const dbItems = await prisma.item.findMany({ where: { id: { in: itemIds }, trackStock: true } });
+        const dbItems = await prisma.item.findMany({
+          where: { id: { in: itemIds }, trackStock: true },
+        });
         const trackedItemIds = new Set(dbItems.map(i => i.id));
-        
+
         for (const item of data.items) {
           if (item.itemId && trackedItemIds.has(item.itemId)) {
             const qty = parseFloat(item.quantity) || 1;
@@ -102,30 +142,33 @@ export class ExpensesService {
 
   async update(id: string, data: any) {
     return this.prisma.$transaction(async (prisma) => {
-      // Revert old stock quantities
+      // --- FIX: Batch-fetch both old and new item sets in parallel ---
       const oldItems = await prisma.expenseItem.findMany({ where: { expenseId: id } });
       const oldItemIds = oldItems.filter(i => i.itemId).map(i => i.itemId as string);
-      
-      if (oldItemIds.length > 0) {
-        const dbItems = await prisma.item.findMany({ where: { id: { in: oldItemIds }, trackStock: true } });
-        const trackedOldItemIds = new Set(dbItems.map(i => i.id));
-        
-        for (const oldItem of oldItems) {
-          if (oldItem.itemId && trackedOldItemIds.has(oldItem.itemId)) {
-            await prisma.item.update({
-              where: { id: oldItem.itemId },
-              data: { stockQuantity: { decrement: oldItem.quantity } }
-            });
-            await prisma.inventoryTransaction.create({
-              data: {
-                itemId: oldItem.itemId,
-                type: 'ADJUST', // We use adjust to revert
-                quantity: -oldItem.quantity,
-                reference: `Expense ${id} Update (Revert)`,
-                remarks: `Reverting previous purchase quantity`
-              }
-            });
-          }
+      const newItemIds = (data.items as any[]).filter(i => i.itemId).map(i => i.itemId);
+      const allItemIds = [...new Set([...oldItemIds, ...newItemIds])];
+
+      const dbTrackedItems = allItemIds.length > 0
+        ? await prisma.item.findMany({ where: { id: { in: allItemIds }, trackStock: true } })
+        : [];
+      const trackedItemIds = new Set(dbTrackedItems.map(i => i.id));
+
+      // Revert old stock (batch already fetched)
+      for (const oldItem of oldItems) {
+        if (oldItem.itemId && trackedItemIds.has(oldItem.itemId)) {
+          await prisma.item.update({
+            where: { id: oldItem.itemId },
+            data: { stockQuantity: { decrement: oldItem.quantity } }
+          });
+          await prisma.inventoryTransaction.create({
+            data: {
+              itemId: oldItem.itemId,
+              type: 'ADJUST',
+              quantity: -oldItem.quantity,
+              reference: `Expense ${id} Update (Revert)`,
+              remarks: `Reverting previous purchase quantity`
+            }
+          });
         }
       }
 
@@ -143,7 +186,6 @@ export class ExpensesService {
           description: data.description,
           note: data.note,
           expenseDate: data.expenseDate ? new Date(data.expenseDate) : new Date(),
-          
           items: {
             create: data.items.map((item: any) => ({
               itemId: item.itemId,
@@ -161,29 +203,23 @@ export class ExpensesService {
         include: { items: true }
       });
 
-      // Update inventory stock for new items
-      const itemIds = data.items.filter((i: any) => i.itemId).map((i: any) => i.itemId);
-      if (itemIds.length > 0) {
-        const dbItems = await prisma.item.findMany({ where: { id: { in: itemIds }, trackStock: true } });
-        const trackedItemIds = new Set(dbItems.map(i => i.id));
-        
-        for (const item of data.items) {
-          if (item.itemId && trackedItemIds.has(item.itemId)) {
-            const qty = parseFloat(item.quantity) || 1;
-            await prisma.item.update({
-              where: { id: item.itemId },
-              data: { stockQuantity: { increment: qty } }
-            });
-            await prisma.inventoryTransaction.create({
-              data: {
-                itemId: item.itemId,
-                type: 'IN',
-                quantity: qty,
-                reference: `Expense ${expense.id} (Updated)`,
-                remarks: `Purchase from ${expense.supplierId}`
-              }
-            });
-          }
+      // Increment new stock (reuse already-fetched trackedItemIds set)
+      for (const item of data.items) {
+        if (item.itemId && trackedItemIds.has(item.itemId)) {
+          const qty = parseFloat(item.quantity) || 1;
+          await prisma.item.update({
+            where: { id: item.itemId },
+            data: { stockQuantity: { increment: qty } }
+          });
+          await prisma.inventoryTransaction.create({
+            data: {
+              itemId: item.itemId,
+              type: 'IN',
+              quantity: qty,
+              reference: `Expense ${expense.id} (Updated)`,
+              remarks: `Purchase from ${expense.supplierId}`
+            }
+          });
         }
       }
 
@@ -197,17 +233,20 @@ export class ExpensesService {
       for (const settlement of settlements) {
         await prisma.account.update({
           where: { id: settlement.accountId },
-          data: { balance: { increment: settlement.amountPaid } } // Revert the decrement
+          data: { balance: { increment: settlement.amountPaid } }
         });
       }
-      // Revert stock quantities
+
+      // Batch-fetch tracked items for inventory revert
       const oldItems = await prisma.expenseItem.findMany({ where: { expenseId: id } });
       const oldItemIds = oldItems.filter(i => i.itemId).map(i => i.itemId as string);
-      
+
       if (oldItemIds.length > 0) {
-        const dbItems = await prisma.item.findMany({ where: { id: { in: oldItemIds }, trackStock: true } });
+        const dbItems = await prisma.item.findMany({
+          where: { id: { in: oldItemIds }, trackStock: true },
+        });
         const trackedOldItemIds = new Set(dbItems.map(i => i.id));
-        
+
         for (const oldItem of oldItems) {
           if (oldItem.itemId && trackedOldItemIds.has(oldItem.itemId)) {
             await prisma.item.update({

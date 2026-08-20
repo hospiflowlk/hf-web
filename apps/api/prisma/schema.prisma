@@ -141,6 +141,9 @@ model Transaction {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([accountId, isDeleted])
+  @@index([date])
 }
 
 // ==========================================
@@ -501,6 +504,9 @@ model Order {
   isDeleted Boolean     @default(false)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
+
+  @@index([status, isDeleted])
+  @@index([legacyReservationId])
 }
 
 model WalkInSession {
@@ -577,7 +583,11 @@ model InvoiceSettlement {
   // Relations
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@index([invoiceId])
 }
+
 
 model InvoiceItem {
   id            String  @id @default(uuid())
@@ -656,6 +666,9 @@ model ExpenseSettlement {
 
   expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
   account Account @relation(fields: [accountId], references: [id])
+
+  @@index([accountId])
+  @@index([expenseId])
 }
 
 // =========================

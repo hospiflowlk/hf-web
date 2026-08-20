@@ -8,12 +8,35 @@ import { AuditService } from '../audit/audit.service';
 
 const round2 = (val: any) => Number((parseFloat(val) || 0).toFixed(2));
 
+// Simple in-process TTL cache for the accounts list
+// Invalidated on any create/update/delete so data stays consistent
+interface CacheEntry<T> { data: T; expiresAt: number }
+
+function createCache<T>(ttlMs: number) {
+  let entry: CacheEntry<T> | null = null;
+  return {
+    get(): T | null {
+      if (entry && Date.now() < entry.expiresAt) return entry.data;
+      return null;
+    },
+    set(data: T) {
+      entry = { data, expiresAt: Date.now() + ttlMs };
+    },
+    invalidate() {
+      entry = null;
+    },
+  };
+}
+
 @Injectable()
 export class AccountingService {
   constructor(
     private prisma: PrismaService,
     private audit: AuditService,
   ) {}
+
+  // 30-second TTL cache — accounts change rarely, but we must invalidate on writes
+  private accountsCache = createCache<any[]>(30_000);
 
   async createAccount(userId: string, dto: CreateAccountDto) {
     const data: any = { ...dto };
@@ -23,37 +46,61 @@ export class AccountingService {
       data.startingBalanceDate = new Date(data.startingBalanceDate);
     }
     const account = await this.prisma.account.create({ data });
+    this.accountsCache.invalidate();
     await this.audit.logAction(userId, 'CREATE', 'Account', account.id, null, account);
     return account;
   }
 
   async getAccounts() {
-    return this.prisma.account.findMany({ 
+    const cached = this.accountsCache.get();
+    if (cached) return cached;
+
+    const accounts = await this.prisma.account.findMany({
       where: { isDeleted: false },
       include: { feeCategory: true, feeSupplier: true }
     });
+    this.accountsCache.set(accounts);
+    return accounts;
   }
 
   async getAccountStatement(id: string) {
     const account = await this.prisma.account.findUnique({ where: { id } });
     if (!account) throw new NotFoundException('Account not found');
 
-    const transactions = await this.prisma.transaction.findMany({
-      where: { accountId: id, isDeleted: false },
-      orderBy: { date: 'asc' }
-    });
-
-    const settlements = await this.prisma.invoiceSettlement.findMany({
-      where: { accountId: id },
-      include: { invoice: true },
-      orderBy: { paidDate: 'asc' }
-    });
-
-    const expenseSettlements = await this.prisma.expenseSettlement.findMany({
-      where: { accountId: id },
-      include: { expense: true },
-      orderBy: { paidDate: 'asc' }
-    });
+    // --- FIX: Run all 3 queries in parallel instead of sequentially ---
+    // Use `select` to fetch only the fields we actually use, not full Invoice/Expense records
+    const [transactions, settlements, expenseSettlements] = await Promise.all([
+      this.prisma.transaction.findMany({
+        where: { accountId: id, isDeleted: false },
+        orderBy: { date: 'asc' },
+      }),
+      this.prisma.invoiceSettlement.findMany({
+        where: { accountId: id },
+        select: {
+          id: true,
+          paidDate: true,
+          amount: true,
+          exchangeRate: true,
+          cardChargeAmount: true,
+          note: true,
+          invoice: { select: { invoiceNum: true } },
+        },
+        orderBy: { paidDate: 'asc' },
+      }),
+      this.prisma.expenseSettlement.findMany({
+        where: { accountId: id },
+        select: {
+          id: true,
+          paidDate: true,
+          amount: true,
+          amountPaid: true,
+          reference: true,
+          expenseId: true,
+          expense: { select: { reference: true } },
+        },
+        orderBy: { paidDate: 'asc' },
+      }),
+    ]);
 
     const statementEntries: any[] = [];
 
@@ -91,7 +138,7 @@ export class AccountingService {
     });
 
     expenseSettlements.forEach(s => {
-      const netAmount = -s.amountPaid; // Expenses reduce balance
+      const netAmount = -s.amountPaid;
       statementEntries.push({
         id: s.id,
         date: s.paidDate,
@@ -113,14 +160,12 @@ export class AccountingService {
 
     statementEntries.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    // Reverse-calculate the starting balance to ensure the statement always matches the current account balance
     const totalTransactions = statementEntries.reduce((sum, entry) => sum + entry.amount, 0);
     const calculatedStartingBalance = round2(account.balance - totalTransactions);
 
     let runningBalance = calculatedStartingBalance;
     const result: any[] = [];
-    
-    // Always show opening balance if there is one, or if there are transactions
+
     if (calculatedStartingBalance !== 0 || account.startingBalanceDate || statementEntries.length > 0) {
        result.push({
           id: 'start',
@@ -161,6 +206,7 @@ export class AccountingService {
       }
 
       const newAccount = await this.prisma.account.update({ where: { id, isDeleted: false }, data });
+      this.accountsCache.invalidate();
       await this.audit.logAction(userId, 'UPDATE', 'Account', id, oldAccount, newAccount);
       return newAccount;
     } catch (e: any) {
@@ -176,7 +222,8 @@ export class AccountingService {
       where: { id },
       data: { isDeleted: true },
     });
-    
+
+    this.accountsCache.invalidate();
     await this.audit.logAction(userId, 'SOFT_DELETE', 'Account', id, oldAccount, newAccount);
     return newAccount;
   }
@@ -198,6 +245,7 @@ export class AccountingService {
       return createdTrx;
     });
 
+    this.accountsCache.invalidate();
     await this.audit.logAction(userId, 'CREATE', 'Transaction', trx.id, null, trx);
     return trx;
   }
@@ -210,8 +258,8 @@ export class AccountingService {
     const oldTrx = await this.prisma.transaction.findUnique({ where: { id } });
     if (!oldTrx) throw new NotFoundException('Transaction not found');
     
-    // Balance recalculation skipped for simplicity in update, usually needs full reversal + new apply in transaction
     const newTrx = await this.prisma.transaction.update({ where: { id, isDeleted: false }, data: dto });
+    this.accountsCache.invalidate();
     await this.audit.logAction(userId, 'UPDATE', 'Transaction', id, oldTrx, newTrx);
     return newTrx;
   }
@@ -232,6 +280,7 @@ export class AccountingService {
       return deletedTrx;
     });
 
+    this.accountsCache.invalidate();
     await this.audit.logAction(userId, 'SOFT_DELETE', 'Transaction', id, oldTrx, newTrx);
     return newTrx;
   }

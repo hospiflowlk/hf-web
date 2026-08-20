@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import api from "@/lib/api";
 import useSWRInfinite from "swr/infinite";
 import Link from "next/link";
@@ -14,14 +14,23 @@ import SettleExpenseDialog from "./components/SettleExpenseDialog";
 export default function ExpensesListPage() {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [settleExpense, setSettleExpense] = useState<any>(null);
 
   const fetcher = (url: string) => api.get(url).then(res => res.data);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   const getKey = (pageIndex: number, previousPageData: any) => {
     if (previousPageData && !previousPageData.nextCursor) return null; // reached the end
-    if (pageIndex === 0) return `/expenses?limit=25`;
-    return `/expenses?cursor=${previousPageData.nextCursor}&limit=25`;
+    const searchParam = debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : '';
+    if (pageIndex === 0) return `/expenses?limit=25${searchParam}`;
+    return `/expenses?cursor=${previousPageData.nextCursor}&limit=25${searchParam}`;
   };
 
   const { data, error, size, setSize, mutate } = useSWRInfinite(getKey, fetcher);
@@ -31,10 +40,6 @@ export default function ExpensesListPage() {
   const isLoadingMore = isLoadingInitialData || (size > 0 && data && typeof data[size - 1] === "undefined");
   const isReachingEnd = data?.[0]?.data.length === 0 || (data && data[data.length - 1]?.nextCursor === null);
 
-  const filteredExpenses = expenses.filter(exp => 
-    exp.reference?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    exp.supplier?.name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const deleteExpense = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -106,12 +111,12 @@ export default function ExpensesListPage() {
                       Loading expenses...
                     </td>
                   </tr>
-                ) : filteredExpenses.length === 0 ? (
+                ) : expenses.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-3">
                         <Receipt className="w-8 h-8 text-slate-300" />
-                        <p>No expenses found.</p>
+                        <p>{debouncedSearch ? `No expenses matching "${debouncedSearch}"` : "No expenses found."}</p>
                         <Link href="/expenses/new">
                           <Button variant="outline" size="sm" className="mt-2 text-red-600 border-red-200 hover:bg-red-50">
                             Record your first expense
@@ -121,7 +126,7 @@ export default function ExpensesListPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredExpenses.map((expense) => (
+                  expenses.map((expense) => (
                     <tr key={expense.id} onClick={() => router.push(`/expenses/${expense.id}/edit`)} className="hover:bg-slate-50/50 transition-colors cursor-pointer group">
                       <td className="px-6 py-4 font-medium text-red-700">{expense.reference || '-'}</td>
                       <td className="px-6 py-4 text-slate-600">
@@ -177,7 +182,7 @@ export default function ExpensesListPage() {
               </tbody>
             </table>
             
-            {!isLoadingInitialData && !isReachingEnd && !searchTerm && (
+            {!isLoadingInitialData && !isReachingEnd && (
               <div className="p-4 border-t border-border flex justify-center bg-slate-50">
                 <Button 
                   variant="outline" 

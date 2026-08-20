@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import api from "@/lib/api";
 import useSWRInfinite from "swr/infinite";
 import Link from "next/link";
@@ -14,14 +14,34 @@ import SettleInvoiceDialog from "./components/SettleInvoiceDialog";
 export default function InvoicesListPage() {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [settleInvoice, setSettleInvoice] = useState<any | null>(null);
+
+  // Debounce search input by 300ms
+  useState(() => {
+    // Initial setup if needed
+  });
 
   const fetcher = (url: string) => api.get(url).then(res => res.data);
 
+  // Effect to debounce search
+  const handleSearchChange = (value: string) => {
+    setSearchTerm(value);
+  };
+
+  // Sync debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   const getKey = (pageIndex: number, previousPageData: any) => {
     if (previousPageData && !previousPageData.nextCursor) return null;
-    if (pageIndex === 0) return `/invoices?limit=25`;
-    return `/invoices?cursor=${previousPageData.nextCursor}&limit=25`;
+    const searchParam = debouncedSearch ? `&search=${encodeURIComponent(debouncedSearch)}` : '';
+    if (pageIndex === 0) return `/invoices?limit=25${searchParam}`;
+    return `/invoices?cursor=${previousPageData.nextCursor}&limit=25${searchParam}`;
   };
 
   const { data, error, size, setSize, mutate } = useSWRInfinite(getKey, fetcher);
@@ -31,10 +51,6 @@ export default function InvoicesListPage() {
   const isLoadingMore = isLoadingInitialData || (size > 0 && data && typeof data[size - 1] === "undefined");
   const isReachingEnd = data?.[0]?.data.length === 0 || (data && data[data.length - 1]?.nextCursor === null);
 
-  const filteredInvoices = invoices.filter(inv => 
-    inv.invoiceNum?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    inv.guestName?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   return (
     <div className="flex-1 flex flex-col h-full bg-slate-50/50">
@@ -95,12 +111,12 @@ export default function InvoicesListPage() {
                       Loading invoices...
                     </td>
                   </tr>
-                ) : filteredInvoices.length === 0 ? (
+                ) : invoices.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-6 py-12 text-center text-muted-foreground">
                       <div className="flex flex-col items-center justify-center gap-3">
                         <FileText className="w-8 h-8 text-slate-300" />
-                        <p>No invoices found.</p>
+                        <p>{debouncedSearch ? `No invoices matching "${debouncedSearch}"` : "No invoices found."}</p>
                         <Link href="/invoices/new">
                           <Button variant="outline" size="sm" className="mt-2 text-teal-600 border-teal-200 hover:bg-teal-50">
                             Create your first invoice
@@ -110,7 +126,7 @@ export default function InvoicesListPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredInvoices.map((invoice) => (
+                  invoices.map((invoice) => (
                     <tr key={invoice.id} onClick={() => router.push(`/invoices/${invoice.id}`)} className="hover:bg-slate-50/50 transition-colors cursor-pointer group">
                       <td className="px-6 py-4 font-medium text-teal-700">{invoice.invoiceNum}</td>
                       <td className="px-6 py-4 text-slate-600">
@@ -170,15 +186,15 @@ export default function InvoicesListPage() {
                           </button>
                           {invoice.status !== 'Draft' && (
                             <button 
-                              className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSettleInvoice(invoice);
-                              }}
-                              title="Record Payment (Settle)"
-                            >
-                              <span className="text-xs font-bold px-1">$</span>
-                            </button>
+                            className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSettleInvoice(invoice);
+                            }}
+                            title="Record Payment (Settle)"
+                          >
+                            <span className="text-xs font-bold px-1">$</span>
+                          </button>
                           )}
                         </div>
                       </td>
@@ -188,7 +204,7 @@ export default function InvoicesListPage() {
               </tbody>
             </table>
             
-            {!isLoadingInitialData && !isReachingEnd && !searchTerm && (
+            {!isLoadingInitialData && !isReachingEnd && (
               <div className="p-4 border-t border-border flex justify-center bg-slate-50">
                 <Button 
                   variant="outline" 

@@ -60,7 +60,7 @@ export function NewOrderDialog({ children }: { children: React.ReactNode }) {
               <p className="text-center text-muted-foreground mt-8">No rooms currently checked in.</p>
             ) : (
               <div className="grid grid-cols-2 gap-4">
-                {rooms.map((room) => (
+                {rooms.map((room: any) => (
                   <Card 
                     key={room.id} 
                     className="cursor-pointer hover:border-primary transition-colors"
@@ -88,7 +88,7 @@ export function NewOrderDialog({ children }: { children: React.ReactNode }) {
               <p className="text-center text-muted-foreground mt-8">No active walk-in sessions.</p>
             ) : (
               <div className="grid grid-cols-2 gap-4">
-                {walkIns.map((session) => (
+                {walkIns.map((session: any) => (
                   <Card 
                     key={session.id} 
                     className="cursor-pointer hover:border-primary transition-colors"

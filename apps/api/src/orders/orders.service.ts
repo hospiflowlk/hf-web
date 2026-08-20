@@ -83,94 +83,83 @@ export class OrdersService {
         }
       }
 
-    // Fetch all active taxes
-    const taxes = await this.prisma.tax.findMany({
-      where: { isActive: true },
-    });
+      // Fetch all active taxes (single query)
+      const taxes = await this.prisma.tax.findMany({
+        where: { isActive: true },
+      });
 
-    // 1. Validate items and calculate subtotal & tax
-    for (const orderItem of dto.items) {
-      const invItem = await this.prisma.item.findUnique({
-        where: { id: orderItem.itemId },
-        include: { 
+      // --- FIX: Batch-fetch all items in ONE query instead of N queries ---
+      const itemIds = dto.items.map(i => i.itemId);
+      const dbItems = await this.prisma.item.findMany({
+        where: { id: { in: itemIds } },
+        include: {
           compositeOf: { include: { ingredient: true } },
-          exemptTaxes: true
-        }
+          exemptTaxes: true,
+        },
       });
+      const itemMap = new Map(dbItems.map(i => [i.id, i]));
 
-      if (!invItem) {
-        throw new BadRequestException(`Item ${orderItem.itemId} not found`);
-      }
+      // 1. Validate items and calculate subtotal & tax using the pre-fetched map
+      for (const orderItem of dto.items) {
+        const invItem = itemMap.get(orderItem.itemId);
 
-      if (invItem.itemType === 'composite' && invItem.compositeOf && invItem.compositeOf.length > 0) {
-        for (const ing of invItem.compositeOf) {
-          if (ing.ingredient?.trackStock) {
-            const requiredQty = ing.quantity * orderItem.quantity;
-            // if (ing.ingredient.stockQuantity < requiredQty) {
-            //   throw new BadRequestException(`Not enough stock for ingredient ${ing.ingredient.name} used in ${invItem.name}`);
-            // }
+        if (!invItem) {
+          throw new BadRequestException(`Item ${orderItem.itemId} not found`);
+        }
+
+        const itemTotal = (invItem.defaultPrice || 0) * orderItem.quantity;
+        subtotal += itemTotal;
+
+        // Calculate Tax for this item
+        let itemTaxAmount = 0;
+        const exemptTaxIds = invItem.exemptTaxes?.map(t => t.id) || [];
+        
+        taxes.forEach(taxObj => {
+          if (!exemptTaxIds.includes(taxObj.id)) {
+            const taxVal = itemTotal * (taxObj.rate / 100);
+            itemTaxAmount += taxVal;
           }
-        }
-      } else if (invItem.trackStock && invItem.stockQuantity < orderItem.quantity) {
-        // throw new BadRequestException(`Not enough stock for ${invItem.name}`);
+        });
+        
+        tax += itemTaxAmount;
+
+        orderItemsData.push({
+          itemId: invItem.id,
+          quantity: orderItem.quantity,
+          unitPrice: invItem.defaultPrice || 0,
+          totalPrice: itemTotal,
+          note: orderItem.note,
+        });
       }
 
-      const itemTotal = (invItem.defaultPrice || 0) * orderItem.quantity;
-      subtotal += itemTotal;
+      const total = subtotal + tax;
 
-      // Calculate Tax for this item
-      let itemTaxAmount = 0;
-      const exemptTaxIds = invItem.exemptTaxes?.map(t => t.id) || [];
-      
-      taxes.forEach(taxObj => {
-        if (!exemptTaxIds.includes(taxObj.id)) {
-          // In invoice logic: taxVal = taxable * (tax.rate / 100)
-          const taxVal = itemTotal * (taxObj.rate / 100);
-          itemTaxAmount += taxVal;
-        }
-      });
-      
-      tax += itemTaxAmount;
-
-      orderItemsData.push({
-        itemId: invItem.id,
-        quantity: orderItem.quantity,
-        unitPrice: invItem.defaultPrice || 0,
-        totalPrice: itemTotal,
-        note: orderItem.note,
-      });
-    }
-
-    const total = subtotal + tax;
-
-    // 2. Transaction: Create Order, create OrderItems, decrease inventory
-    const order = await this.prisma.$transaction(async (tx) => {
-      const newOrder = await tx.order.create({
-        data: {
-            orderType: dto.orderType,
-            guestId: dto.guestId,
-            roomId: dto.roomId,
-            legacyReservationId,
-            walkInSessionId: dto.walkInSessionId,
-            paymentMethod: dto.paymentMethod,
-            status: (dto.paymentMethod === 'ROOM_CHARGE' && !dto.isHB) ? 'PENDING' : 'PAID',
-            subtotal,
-            tax,
-            total: dto.isHB ? 0 : total,
-            originalTotal: dto.isHB ? total : null,
-            items: {
-              create: orderItemsData,
+      // 2. Transaction: Create Order, create OrderItems, decrease inventory
+      // Items are already in itemMap — no second N+1 lookup needed
+      const order = await this.prisma.$transaction(async (tx) => {
+        const newOrder = await tx.order.create({
+          data: {
+              orderType: dto.orderType,
+              guestId: dto.guestId,
+              roomId: dto.roomId,
+              legacyReservationId,
+              walkInSessionId: dto.walkInSessionId,
+              paymentMethod: dto.paymentMethod,
+              status: (dto.paymentMethod === 'ROOM_CHARGE' && !dto.isHB) ? 'PENDING' : 'PAID',
+              subtotal,
+              tax,
+              total: dto.isHB ? 0 : total,
+              originalTotal: dto.isHB ? total : null,
+              items: {
+                create: orderItemsData,
+              },
             },
-          },
-          include: { items: true },
-        });
-
-        for (const orderItem of dto.items) {
-          const itemObj = await tx.item.findUnique({ 
-            where: { id: orderItem.itemId },
-            include: { compositeOf: { include: { ingredient: true } } }
+            include: { items: true },
           });
-          
+
+        // Use pre-fetched itemMap — no additional DB queries per item
+        for (const orderItem of dto.items) {
+          const itemObj = itemMap.get(orderItem.itemId);
           if (!itemObj) continue;
 
           if (itemObj.itemType === 'composite' && itemObj.compositeOf && itemObj.compositeOf.length > 0) {
