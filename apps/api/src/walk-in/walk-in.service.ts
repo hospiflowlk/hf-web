@@ -19,17 +19,52 @@ export class WalkInService {
 
   async findAllActive() {
     return this.prisma.walkInSession.findMany({
-      where: { status: 'ACTIVE' },
+      where: { status: 'ACTIVE', isDeleted: false },
       orderBy: { createdAt: 'desc' },
-      include: {
-        orders: true,
+      select: {
+        id: true,
+        referenceNumber: true,
+        guestName: true,
+        guestCount: true,
+        status: true,
+        createdAt: true,
+        orders: {
+          where: {
+            isDeleted: false,
+            status: { not: 'CANCELLED' }
+          },
+          select: {
+            id: true,
+            total: true,
+            subtotal: true,
+            tax: true,
+            status: true,
+            paymentMethod: true,
+            createdAt: true,
+            items: {
+              select: {
+                id: true,
+                quantity: true,
+                unitPrice: true,
+                totalPrice: true,
+                note: true,
+                item: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                }
+              }
+            }
+          }
+        }
       },
     });
   }
 
   async findAllActiveBasic() {
     return this.prisma.walkInSession.findMany({
-      where: { status: 'ACTIVE' },
+      where: { status: 'ACTIVE', isDeleted: false },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -87,23 +122,49 @@ export class WalkInService {
     return this.prisma.walkInSession.findMany({
       where: { status: 'CLOSED', isDeleted: false },
       orderBy: { closedAt: 'desc' },
-      take: 50,
-      include: {
+      take: 30,
+      select: {
+        id: true,
+        referenceNumber: true,
+        guestName: true,
+        guestCount: true,
+        status: true,
+        createdAt: true,
+        closedAt: true,
         orders: {
           where: { 
             paymentMethod: 'ROOM_CHARGE',
             isDeleted: false,
             status: { not: 'CANCELLED' }
           },
-          include: {
+          select: {
+            id: true,
+            total: true,
+            subtotal: true,
+            tax: true,
+            status: true,
+            createdAt: true,
             items: {
-              include: { item: true }
+              select: {
+                id: true,
+                quantity: true,
+                unitPrice: true,
+                totalPrice: true,
+                note: true,
+                item: {
+                  select: {
+                    id: true,
+                    name: true
+                  }
+                }
+              }
             }
           }
         }
       },
     });
   }
+
 
   async repostBill(id: string) {
     const session = await this.prisma.walkInSession.findUnique({

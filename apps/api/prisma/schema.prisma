@@ -542,7 +542,11 @@ model WalkInSession {
   createdAt       DateTime            @default(now())
   closedAt        DateTime?
   isDeleted       Boolean             @default(false)
+
+  @@index([status, isDeleted, createdAt])
+  @@index([status, isDeleted, closedAt])
 }
+
 
 model OrderItem {
   id         String   @id @default(uuid())

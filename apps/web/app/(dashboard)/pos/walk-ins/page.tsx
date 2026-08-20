@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Users, Plus, Trash2, ArrowLeft } from "lucide-react";
@@ -10,9 +11,18 @@ import api from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 export default function WalkInsPage() {
-  const [sessions, setSessions] = useState<any[]>([]);
-  const [closedSessions, setClosedSessions] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: sessions = [], isLoading: loadingActive, mutate: mutateActive } = useSWR<any[]>(
+    "/walk-in/active",
+    fetcher,
+    { dedupingInterval: 10000 }
+  );
+  const { data: closedSessions = [], isLoading: loadingClosed, mutate: mutateClosed } = useSWR<any[]>(
+    "/walk-in/closed",
+    fetcher,
+    { dedupingInterval: 10000 }
+  );
+
   const [tab, setTab] = useState<'ACTIVE' | 'HISTORY'>('ACTIVE');
   const router = useRouter();
 
@@ -22,23 +32,9 @@ export default function WalkInsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [selectedSessionForOrders, setSelectedSessionForOrders] = useState<any>(null);
 
-  useEffect(() => {
-    fetchSessions();
-  }, []);
-
-  const fetchSessions = async () => {
-    setLoading(true);
-    try {
-      const [activeRes, closedRes] = await Promise.all([
-        api.get("/walk-in/active"),
-        api.get("/walk-in/closed")
-      ]);
-      setSessions(activeRes.data);
-      setClosedSessions(closedRes.data);
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(false);
+  const refreshAll = () => {
+    mutateActive();
+    mutateClosed();
   };
 
   const handleCreate = async () => {
@@ -49,7 +45,7 @@ export default function WalkInsPage() {
       setOpen(false);
       setGuestName("");
       setGuestCount(1);
-      fetchSessions();
+      refreshAll();
     } catch (e) {
       console.error(e);
     }
@@ -72,7 +68,7 @@ export default function WalkInsPage() {
       try {
         await api.post(`/walk-in/${sessionId}/un-checkout`);
         alert("Walk-In session un-checked out successfully!");
-        fetchSessions();
+        refreshAll();
       } catch (e: any) {
         alert("Un-checkout failed: " + (e.response?.data?.message || e.message));
       }
@@ -83,7 +79,7 @@ export default function WalkInsPage() {
     if (confirm("Are you sure you want to delete this checkout record permanently?")) {
       try {
         await api.delete(`/walk-in/closed/${sessionId}`);
-        fetchSessions();
+        refreshAll();
       } catch (e: any) {
         alert("Delete failed: " + (e.response?.data?.message || e.message));
       }
@@ -94,7 +90,7 @@ export default function WalkInsPage() {
     if (confirm("Are you sure you want to delete ALL checkout records permanently? This action cannot be undone.")) {
       try {
         await api.delete(`/walk-in/closed`);
-        fetchSessions();
+        refreshAll();
       } catch (e: any) {
         alert("Delete all failed: " + (e.response?.data?.message || e.message));
       }
@@ -182,8 +178,36 @@ export default function WalkInsPage() {
         </div>
       </div>
 
-      {loading ? (
-        <p className="text-muted-foreground">Loading sessions...</p>
+      {tab === 'ACTIVE' && loadingActive && sessions.length === 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {Array.from({ length: 8 }).map((_, idx) => (
+            <Card key={idx} className="animate-pulse flex flex-col justify-between h-48 border-gray-100">
+              <CardHeader className="bg-orange-50/50 pb-2">
+                <div className="h-5 bg-slate-200 rounded w-1/2 mb-1"></div>
+                <div className="h-3 bg-slate-200 rounded w-1/3"></div>
+              </CardHeader>
+              <CardContent className="p-4 space-y-2">
+                <div className="h-4 bg-slate-100 rounded w-3/4"></div>
+                <div className="h-4 bg-slate-100 rounded w-1/2"></div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : tab === 'HISTORY' && loadingClosed && closedSessions.length === 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {Array.from({ length: 8 }).map((_, idx) => (
+            <Card key={idx} className="animate-pulse flex flex-col justify-between h-48 border-gray-100">
+              <CardHeader className="bg-slate-100 pb-2">
+                <div className="h-5 bg-slate-200 rounded w-1/2 mb-1"></div>
+                <div className="h-3 bg-slate-200 rounded w-1/3"></div>
+              </CardHeader>
+              <CardContent className="p-4 space-y-2">
+                <div className="h-4 bg-slate-100 rounded w-3/4"></div>
+                <div className="h-4 bg-slate-100 rounded w-1/2"></div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ) : tab === 'ACTIVE' && sessions.length === 0 ? (
         <Card>
           <CardContent className="py-12 flex flex-col items-center text-muted-foreground">
@@ -200,6 +224,7 @@ export default function WalkInsPage() {
           </CardContent>
         </Card>
       ) : (
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {(tab === 'ACTIVE' ? sessions : closedSessions).map(session => (
             <Card key={session.id} className={`flex flex-col justify-between h-full ${tab === 'ACTIVE' ? "border-orange-200" : "border-gray-200 opacity-80"}`}>
@@ -263,8 +288,9 @@ export default function WalkInsPage() {
                             try {
                               await api.patch(`/walk-in/${session.id}/checkout`);
                               alert("Check-out successful! A draft invoice has been generated.");
-                              fetchSessions();
+                              refreshAll();
                             } catch (e: any) {
+
                               alert("Checkout failed: " + e.message);
                             }
                           }
