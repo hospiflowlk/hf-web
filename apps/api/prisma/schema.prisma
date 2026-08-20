@@ -260,7 +260,12 @@ model Item {
 
   // Inventory tracking
   inventoryTransactions InventoryTransaction[]
+
+  @@index([isDeleted, isActive])
+  @@index([posCategoryId])
+  @@index([categoryId])
 }
+
 
 model InventoryTransaction {
   id        String   @id @default(uuid())

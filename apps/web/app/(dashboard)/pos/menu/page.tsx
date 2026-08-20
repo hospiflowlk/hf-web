@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import useSWR from "swr";
 import { Search, ShoppingBag, Plus, Minus, Trash2, CreditCard, Banknote, Coffee, User, ArrowLeft, MessageCircle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,12 +30,24 @@ export default function POSPage() {
 }
 
 function POSContent() {
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [posCategories, setPosCategories] = useState<any[]>([]);
+
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: posMasterData, isLoading, mutate } = useSWR<any>(
+    "/items/pos-master-data",
+    fetcher,
+    {
+      revalidateOnFocus: false,
+      dedupingInterval: 60000,
+    }
+  );
+
+  const items: InventoryItem[] = posMasterData?.items || [];
+  const posCategories: any[] = posMasterData?.posCategories || [];
+  const taxes: any[] = posMasterData?.taxes || [];
+
   const [cart, setCart] = useState<CartItem[]>([]);
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
-  const [taxes, setTaxes] = useState<any[]>([]);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showMobileCart, setShowMobileCart] = useState(false);
   const [isHBMode, setIsHBMode] = useState(false);
@@ -50,10 +63,6 @@ function POSContent() {
   const walkInId = searchParams.get("walkInId");
   const contextLabel = searchParams.get("label") || "Quick Order";
 
-  useEffect(() => {
-    fetchItems();
-  }, []);
-
   const handleToggleMode = (mode: boolean) => {
     if (cart.length > 0 && mode !== isHBMode) {
       if (!window.confirm(`Switching to ${mode ? 'HB (Free)' : 'Chargeable'} mode will convert all items currently in your cart. Continue?`)) {
@@ -64,18 +73,6 @@ function POSContent() {
     setIsHBMode(mode);
   };
 
-  const fetchItems = async () => {
-    try {
-      const res = await api.get("/items/pos-master-data");
-      const { items: mapped, posCategories: catData, taxes: taxData } = res.data;
-      
-      setPosCategories(catData);
-      setTaxes(taxData);
-      setItems(mapped);
-    } catch (err) {
-      console.error(err);
-    }
-  };
 
   // Get unique categories present in items
   const itemCategories = new Set(items.map(i => i.category));
@@ -165,7 +162,7 @@ function POSContent() {
       });
       alert(`Order completed using ${method}!`);
       setCart([]);
-      fetchItems(); // refresh stock
+      mutate(); // refresh stock in cache
       router.push('/pos');
     } catch (err: any) {
       alert("Error: " + JSON.stringify(err.response?.data || err.message));
@@ -241,7 +238,7 @@ function POSContent() {
         items: cart.map(i => ({ itemId: i.id, quantity: i.cartQuantity, note: i.note }))
       });
       setCart([]);
-      fetchItems(); // refresh stock
+      mutate(); // refresh stock in cache
       setShowReviewModal(false);
       window.open(waUrl, '_blank');
       router.push('/pos');
@@ -256,7 +253,7 @@ function POSContent() {
       {/* Left Pane: Items Browser (70%) */}
       <div className="w-full lg:w-[70%] flex flex-col p-4 md:p-6 lg:h-full lg:overflow-hidden h-auto">
         {/* Header / Search / Filters */}
-        <div className="mb-6 space-y-4">
+        <div className="space-y-4 mb-4">
           <div className="flex items-center gap-4 bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
             <Button variant="ghost" size="icon" onClick={() => router.push('/pos')} className="rounded-full shrink-0">
               <ArrowLeft className="w-5 h-5 text-gray-500" />
@@ -293,40 +290,62 @@ function POSContent() {
           </div>
 
           <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
-            {orderedCategories.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setFilter(cat)}
-                className={`px-5 py-2.5 rounded-full font-semibold text-sm whitespace-nowrap transition-all shadow-sm ${filter === cat ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-              >
-                {cat}
-              </button>
-            ))}
+            {isLoading && posCategories.length === 0 ? (
+              Array.from({ length: 5 }).map((_, idx) => (
+                <div key={idx} className="h-10 w-24 bg-slate-200 animate-pulse rounded-full shrink-0" />
+              ))
+            ) : (
+              orderedCategories.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setFilter(cat)}
+                  className={`px-5 py-2.5 rounded-full font-semibold text-sm whitespace-nowrap transition-all shadow-sm ${filter === cat ? 'bg-gray-900 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                >
+                  {cat}
+                </button>
+              ))
+            )}
           </div>
         </div>
 
         {/* Item Grid */}
         <div className="flex-1 lg:overflow-y-auto overflow-visible custom-scrollbar">
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 pb-20">
-            {filteredItems.map(item => (
-              <div 
-                key={item.id} 
-                onClick={() => { setPopupItem(item); setPopupQuantity(1); setPopupNote(""); }}
-                className={`group relative bg-white rounded-xl p-3 shadow-sm border border-gray-100 cursor-pointer transition-all hover:shadow-md hover:border-primary/40 hover:bg-gray-50 flex flex-col justify-center items-center text-center h-24 ${item.quantity <= 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {item.trackStock && (
-                  <div className="absolute top-1.5 right-1.5">
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 leading-none rounded-sm ${item.quantity > 5 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                      {item.quantity} In Stock
-                    </span>
-                  </div>
-                )}
-                <h3 className="font-semibold text-sm text-gray-800 line-clamp-2 leading-tight mb-1">{item.name}</h3>
-                <p className="text-primary font-bold text-sm">${item.unitPrice.toFixed(2)}</p>
+            {isLoading && items.length === 0 ? (
+              Array.from({ length: 15 }).map((_, idx) => (
+                <div 
+                  key={idx} 
+                  className="bg-white rounded-xl p-3 shadow-sm border border-gray-100 flex flex-col justify-center items-center text-center h-24 animate-pulse"
+                >
+                  <div className="h-3.5 bg-slate-200 rounded w-3/4 mb-2"></div>
+                  <div className="h-3 bg-slate-100 rounded w-1/2"></div>
+                </div>
+              ))
+            ) : (
+              filteredItems.map(item => (
+                <div 
+                  key={item.id} 
+                  onClick={() => { setPopupItem(item); setPopupQuantity(1); setPopupNote(""); }}
+                  className={`group relative bg-white rounded-xl p-3 shadow-sm border border-gray-100 cursor-pointer transition-all hover:shadow-md hover:border-primary/40 hover:bg-gray-50 flex flex-col justify-center items-center text-center h-24 ${item.quantity <= 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {item.trackStock && (
+                    <div className="absolute top-1.5 right-1.5">
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 leading-none rounded-sm ${item.quantity > 5 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {item.quantity} In Stock
+                      </span>
+                    </div>
+                  )}
+                  <h3 className="font-semibold text-sm text-gray-800 line-clamp-2 leading-tight mb-1">{item.name}</h3>
+                  <p className="text-primary font-bold text-sm">${item.unitPrice.toFixed(2)}</p>
+                </div>
+              ))
+            )}
+            {!isLoading && filteredItems.length === 0 && (
+              <div className="col-span-full py-16 flex flex-col items-center justify-center text-center text-gray-500 font-medium">
+                <Coffee className="w-10 h-10 mb-2 text-gray-300" />
+                <p className="text-base font-semibold text-gray-700">No items found matching criteria.</p>
+                <p className="text-xs text-gray-400 mt-0.5">Try selecting another category or clear your search.</p>
               </div>
-            ))}
-            {filteredItems.length === 0 && (
-              <div className="col-span-full py-20 text-center text-gray-500 font-medium">No items found matching criteria.</div>
             )}
           </div>
         </div>
