@@ -39,6 +39,7 @@ export default function ItemMasterPage() {
     posCategoryId: "",
     useInInvoices: true,
     useInExpenses: true,
+    useInPos: true,
     exemptTaxes: [] as string[],
     itemType: "none",
     trackStock: false,
@@ -57,8 +58,9 @@ export default function ItemMasterPage() {
         defaultPrice: item.defaultPrice?.toString() || "",
         categoryId: item.categoryId || "",
         posCategoryId: item.posCategoryId || "",
-        useInInvoices: item.useInInvoices,
-        useInExpenses: item.useInExpenses,
+        useInInvoices: item.useInInvoices !== false,
+        useInExpenses: item.useInExpenses !== false,
+        useInPos: item.useInPos !== false,
         exemptTaxes: item.exemptTaxes?.map((t: any) => t.id) || [],
         itemType: item.itemType || "none",
         trackStock: item.trackStock || false,
@@ -81,6 +83,7 @@ export default function ItemMasterPage() {
         posCategoryId: "",
         useInInvoices: true,
         useInExpenses: true,
+        useInPos: true,
         exemptTaxes: taxes.map((t: any) => t.id),
         itemType: "none",
         trackStock: false,
@@ -100,8 +103,8 @@ export default function ItemMasterPage() {
   };
 
   const saveItem = async () => {
-    if (formData.useInInvoices && !formData.posCategoryId) {
-      toast.error("POS Category is required when 'Use in Invoices' is checked.");
+    if (formData.useInPos && !formData.posCategoryId) {
+      toast.error("POS Category is required when 'Use in POS' is checked.");
       return;
     }
 
@@ -109,7 +112,7 @@ export default function ItemMasterPage() {
       setIsMutating(true);
       const payload = {
         ...formData,
-        posCategoryId: formData.posCategoryId || null,
+        posCategoryId: formData.useInPos ? (formData.posCategoryId || null) : null,
         defaultPrice: parseFloat(formData.defaultPrice) || 0,
         reorderLevel: parseFloat(formData.reorderLevel) || 0,
         costPrice: parseFloat(formData.costPrice) || 0,
@@ -118,6 +121,7 @@ export default function ItemMasterPage() {
           quantity: parseFloat(i.quantity) || 0,
         })) : [],
       };
+
       // remove readonly stockQuantity
       delete (payload as any).stockQuantity;
       if (editingId) {
@@ -181,6 +185,7 @@ export default function ItemMasterPage() {
       Price: item.defaultPrice,
       "Use In Invoices": item.useInInvoices ? "Yes" : "No",
       "Use In Expenses": item.useInExpenses ? "Yes" : "No",
+      "Use In POS": item.useInPos !== false ? "Yes" : "No",
       "Item Type": item.itemType,
       "Track Stock": item.trackStock ? "Yes" : "No",
       Unit: item.unit || "unit",
@@ -265,6 +270,7 @@ export default function ItemMasterPage() {
             posCategoryId: posCatId,
             useInInvoices: row["Use In Invoices"] === "No" ? false : true,
             useInExpenses: row["Use In Expenses"] === "No" ? false : true,
+            useInPos: row["Use In POS"] === "No" ? false : true,
             itemType: row["Item Type"] || "none",
             trackStock: row["Track Stock"] === "Yes" ? true : false,
             unit: row.Unit || "unit",
@@ -273,6 +279,7 @@ export default function ItemMasterPage() {
             exemptTaxes: exemptTaxes,
             ingredients: ingredients
           };
+
 
           await api.post("/items", payload).catch((err: any) => console.error("Skip dup", err.message || err));
         }
@@ -468,28 +475,30 @@ export default function ItemMasterPage() {
                 {!formData.categoryId && <span className="text-[10px] text-red-500 mt-1 block">Required</span>}
               </div>
 
-              <div>
-                <Label htmlFor="posCategory" className="text-xs text-muted-foreground mb-1 block">
-                  POS Category {formData.useInInvoices ? <span className="text-red-500">*</span> : <span className="text-slate-400">(Optional)</span>}
-                </Label>
-                <Select value={formData.posCategoryId} onValueChange={(val) => setFormData({ ...formData, posCategoryId: val })}>
-                  <SelectTrigger className={formData.useInInvoices && !formData.posCategoryId ? "border-red-400" : ""}>
-                    <SelectValue placeholder="Select POS Category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {posCategories.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {formData.useInInvoices && !formData.posCategoryId && <span className="text-[10px] text-red-500 mt-1 block">Required for POS</span>}
-              </div>
+              {formData.useInPos && (
+                <div>
+                  <Label htmlFor="posCategory" className="text-xs text-muted-foreground mb-1 block">
+                    POS Category <span className="text-red-500">*</span>
+                  </Label>
+                  <Select value={formData.posCategoryId} onValueChange={(val) => setFormData({ ...formData, posCategoryId: val })}>
+                    <SelectTrigger className={!formData.posCategoryId ? "border-red-400" : ""}>
+                      <SelectValue placeholder="Select POS Category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {posCategories.map((cat) => (
+                        <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {!formData.posCategoryId && <span className="text-[10px] text-red-500 mt-1 block">Required for POS</span>}
+                </div>
+              )}
             </div>
 
             {/* Item Usage */}
             <div>
               <h3 className="font-medium mb-3">Item Usage</h3>
-              <div className="flex gap-12">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                 <div className="flex items-start space-x-3">
                   <Checkbox
                     id="useInInvoices"
@@ -515,8 +524,22 @@ export default function ItemMasterPage() {
                     <p className="text-xs text-muted-foreground">Show when recording expenses</p>
                   </div>
                 </div>
+
+                <div className="flex items-start space-x-3">
+                  <Checkbox
+                    id="useInPos"
+                    checked={formData.useInPos}
+                    onCheckedChange={(c) => setFormData({ ...formData, useInPos: !!c })}
+                    className="mt-1 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
+                  />
+                  <div className="grid gap-1.5 leading-none">
+                    <label htmlFor="useInPos" className="text-sm font-medium leading-none cursor-pointer">Use in POS</label>
+                    <p className="text-xs text-muted-foreground">Show on POS ordering screen</p>
+                  </div>
+                </div>
               </div>
             </div>
+
 
             {/* Relevant Taxes */}
             <div>

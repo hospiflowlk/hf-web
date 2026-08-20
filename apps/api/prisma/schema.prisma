@@ -234,8 +234,10 @@ model Item {
   // Visibility Flags
   useInInvoices Boolean @default(true)
   useInExpenses Boolean @default(true)
+  useInPos      Boolean @default(true)
 
   // Exempt Taxes (Many-to-Many relation)
+
   exemptTaxes Tax[] @relation("ItemTaxExemptions")
 
   // Inventory

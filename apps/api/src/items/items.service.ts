@@ -159,7 +159,7 @@ export class ItemsService {
       this.prisma.posCategory.findMany({ orderBy: { name: 'asc' } }),
       this.prisma.tax.findMany({ where: { isActive: true } }),
       this.prisma.item.findMany({
-        where: { isDeleted: false, isActive: true },
+        where: { isDeleted: false, isActive: true, useInPos: true },
         select: {
           id: true,
           name: true,
@@ -171,6 +171,7 @@ export class ItemsService {
         },
         orderBy: { createdAt: 'asc' }
       })
+
     ]);
 
     const mappedItems = items.map(item => ({
