@@ -17,9 +17,10 @@ export class ItemsController {
       this.itemsService.findAll(),
       this.itemsService.getCategories(),
       this.itemsService.getTaxes(),
-      this.itemsService['prisma'].posCategory.findMany({ orderBy: { name: 'asc' } }),
+      this.itemsService['prisma'].posCategory.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } }),
     ]);
     return { items, categories, taxes, posCategories };
+
   }
 
   @Get('pos-master-data')

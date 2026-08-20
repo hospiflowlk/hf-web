@@ -74,6 +74,9 @@ function POSContent() {
   };
 
 
+  // Map category names to their sort order index
+  const categoryOrderMap = new Map(posCategories.map((c, index) => [c.name, index]));
+
   // Get unique categories present in items
   const itemCategories = new Set(items.map(i => i.category));
   // Create ordered list of categories starting with "All", then ordered pos categories, then Uncategorized (if present)
@@ -83,13 +86,23 @@ function POSContent() {
     ...(itemCategories.has("Uncategorized") ? ["Uncategorized"] : [])
   ];
 
-  const filteredItems = items.filter(i => {
-    if (search) {
-      return i.name.toLowerCase().includes(search.toLowerCase());
-    }
-    if (filter !== "All" && i.category !== filter) return false;
-    return true;
-  });
+  const filteredItems = items
+    .filter(i => {
+      if (search) {
+        return i.name.toLowerCase().includes(search.toLowerCase());
+      }
+      if (filter !== "All" && i.category !== filter) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (filter === "All") {
+        const orderA = categoryOrderMap.has(a.category) ? categoryOrderMap.get(a.category)! : 9999;
+        const orderB = categoryOrderMap.has(b.category) ? categoryOrderMap.get(b.category)! : 9999;
+        if (orderA !== orderB) return orderA - orderB;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
 
   const confirmAddToCart = () => {
     if (!popupItem) return;

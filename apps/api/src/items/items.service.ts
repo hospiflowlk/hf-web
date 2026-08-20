@@ -22,7 +22,12 @@ export class ItemsService {
   // 30-second cache for the full item list — invalidated on any mutation
   private itemListCache = createCache<any[]>(30_000);
   // 30-second cache for POS master data (items + taxes + posCategories)
-  private posMasterCache = createCache<any>(30_000);
+  public static posMasterCache = createCache<any>(30_000);
+
+  public static invalidatePosCache() {
+    ItemsService.posMasterCache.invalidate();
+  }
+
 
   async findAll() {
     const cached = this.itemListCache.get();
@@ -82,7 +87,7 @@ export class ItemsService {
         include: { category: true, posCategory: true, exemptTaxes: true, compositeOf: { include: { ingredient: true } } },
       });
       this.itemListCache.invalidate();
-      this.posMasterCache.invalidate();
+      ItemsService.posMasterCache.invalidate();
       return item;
     } catch (error: any) {
       if (error.code === 'P2002') {
@@ -120,7 +125,7 @@ export class ItemsService {
         include: { category: true, posCategory: true, exemptTaxes: true, compositeOf: { include: { ingredient: true } } },
       });
       this.itemListCache.invalidate();
-      this.posMasterCache.invalidate();
+      ItemsService.posMasterCache.invalidate();
       return item;
     } catch (error: any) {
       if (error.code === 'P2002') {
@@ -143,7 +148,7 @@ export class ItemsService {
       },
     });
     this.itemListCache.invalidate();
-    this.posMasterCache.invalidate();
+    ItemsService.posMasterCache.invalidate();
     return result;
   }
 
@@ -152,13 +157,14 @@ export class ItemsService {
   }
 
   async getPosMasterData() {
-    const cached = this.posMasterCache.get();
+    const cached = ItemsService.posMasterCache.get();
     if (cached) return cached;
 
     const [posCategories, taxes, items] = await Promise.all([
-      this.prisma.posCategory.findMany({ orderBy: { name: 'asc' } }),
+      this.prisma.posCategory.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } }),
       this.prisma.tax.findMany({ where: { isActive: true } }),
       this.prisma.item.findMany({
+
         where: { isDeleted: false, isActive: true, useInPos: true },
         select: {
           id: true,
@@ -185,7 +191,7 @@ export class ItemsService {
     }));
 
     const result = { posCategories, taxes, items: mappedItems };
-    this.posMasterCache.set(result);
+    ItemsService.posMasterCache.set(result);
     return result;
   }
 
@@ -215,7 +221,8 @@ export class ItemsService {
       )
     );
     this.itemListCache.invalidate();
-    this.posMasterCache.invalidate();
+    ItemsService.posMasterCache.invalidate();
     return result;
   }
 }
+

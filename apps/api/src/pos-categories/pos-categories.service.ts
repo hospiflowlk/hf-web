@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ItemsService } from '../items/items.service';
 
 @Injectable()
 export class PosCategoriesService {
@@ -18,14 +19,18 @@ export class PosCategoriesService {
     });
     if (existing) {
       if (!existing.isActive) {
-        return this.prisma.posCategory.update({
+        const cat = await this.prisma.posCategory.update({
           where: { id: existing.id },
           data: { isActive: true },
         });
+        ItemsService.invalidatePosCache();
+        return cat;
       }
       throw new ConflictException('POS Category with this name already exists');
     }
-    return this.prisma.posCategory.create({ data });
+    const cat = await this.prisma.posCategory.create({ data });
+    ItemsService.invalidatePosCache();
+    return cat;
   }
 
   async update(id: string, data: { name: string }) {
@@ -43,10 +48,12 @@ export class PosCategoriesService {
       }
     }
 
-    return this.prisma.posCategory.update({
+    const cat = await this.prisma.posCategory.update({
       where: { id },
       data,
     });
+    ItemsService.invalidatePosCache();
+    return cat;
   }
 
   async remove(id: string) {
@@ -54,10 +61,12 @@ export class PosCategoriesService {
     if (!category || !category.isActive) {
       throw new NotFoundException('POS Category not found');
     }
-    return this.prisma.posCategory.update({
+    const cat = await this.prisma.posCategory.update({
       where: { id },
       data: { isActive: false },
     });
+    ItemsService.invalidatePosCache();
+    return cat;
   }
 
   async reorder(orderedIds: string[]) {
@@ -69,6 +78,8 @@ export class PosCategoriesService {
       })
     );
     await this.prisma.$transaction(updates);
+    ItemsService.invalidatePosCache();
     return { success: true };
   }
 }
+
