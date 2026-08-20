@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: hospiflow-api
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build --workspace=api
+    startCommand: npm run start:prod --workspace=api
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        value: postgresql://postgres.yhludolmedhuellnrefe:Asm2026%402026@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=10&pool_timeout=30
+      - key: DIRECT_URL
+        value: postgresql://postgres.yhludolmedhuellnrefe:Asm2026%402026@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres
+      - key: JWT_SECRET
+        value: hospiflow_development_secret
+      - key: PORT
+        value: 5000
