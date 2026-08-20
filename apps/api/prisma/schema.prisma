@@ -276,7 +276,10 @@ model InventoryTransaction {
   reference String?  // e.g. Expense ID, Order ID, or "Manual Adjustment"
   remarks   String?
   createdAt DateTime @default(now())
+
+  @@index([itemId])
 }
+
 
 model ItemIngredient {
   id               String @id @default(uuid())
@@ -450,7 +453,12 @@ model LegacyReservation {
   updatedAt DateTime @updatedAt
   
   posOrders Order[]
+
+  @@index([roomId, status, isDeleted])
+  @@index([status, isDeleted])
 }
+
+
 
 // ==========================================
 // POS (Point of Sale)
@@ -540,7 +548,11 @@ model OrderItem {
   note       String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([itemId])
 }
+
 
 // ==========================================
 // FRONT DESK & INVOICING

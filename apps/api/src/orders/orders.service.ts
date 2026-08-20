@@ -57,49 +57,53 @@ export class OrdersService {
       let tax = 0;
       const orderItemsData: any[] = [];
 
-      // Validate based on orderType
-      let legacyReservationId: string | undefined;
-
-      if (dto.orderType === 'ROOM') {
-        if (!dto.roomId) throw new BadRequestException('roomId is required for ROOM orders');
-        
-        // Find active check-in
-        const activeRes = await this.prisma.legacyReservation.findFirst({
-          where: {
-            roomId: dto.roomId,
-            status: 'CHECKED_IN',
-            isDeleted: false
-          }
-        });
-        if (!activeRes) {
-          throw new BadRequestException('This room does not have an active checked-in guest.');
-        }
-        legacyReservationId = activeRes.id;
-      } else if (dto.orderType === 'WALK_IN') {
-        if (!dto.walkInSessionId) throw new BadRequestException('walkInSessionId is required for WALK_IN orders');
-        const session = await this.prisma.walkInSession.findUnique({ where: { id: dto.walkInSessionId } });
-        if (!session || session.status !== 'ACTIVE') {
-          throw new BadRequestException('Invalid or closed Walk-In Session');
-        }
-      }
-
-      // Fetch all active taxes (single query)
-      const taxes = await this.prisma.tax.findMany({
-        where: { isActive: true },
-      });
-
-      // --- FIX: Batch-fetch all items in ONE query instead of N queries ---
+      // 1. Parallelize initial validation & master data queries
       const itemIds = dto.items.map(i => i.itemId);
-      const dbItems = await this.prisma.item.findMany({
+
+      const reservationPromise = dto.orderType === 'ROOM'
+        ? (dto.roomId 
+            ? this.prisma.legacyReservation.findFirst({
+                where: { roomId: dto.roomId, status: 'CHECKED_IN', isDeleted: false },
+                select: { id: true }
+              })
+            : Promise.reject(new BadRequestException('roomId is required for ROOM orders')))
+        : dto.orderType === 'WALK_IN'
+        ? (dto.walkInSessionId
+            ? this.prisma.walkInSession.findUnique({
+                where: { id: dto.walkInSessionId },
+                select: { id: true, status: true }
+              })
+            : Promise.reject(new BadRequestException('walkInSessionId is required for WALK_IN orders')))
+        : Promise.resolve(null);
+
+      const taxesPromise = this.prisma.tax.findMany({ where: { isActive: true } });
+      const itemsPromise = this.prisma.item.findMany({
         where: { id: { in: itemIds } },
         include: {
           compositeOf: { include: { ingredient: true } },
           exemptTaxes: true,
         },
       });
+
+      const [resData, taxes, dbItems] = await Promise.all([
+        reservationPromise,
+        taxesPromise,
+        itemsPromise
+      ]);
+
+      let legacyReservationId: string | undefined;
+      if (dto.orderType === 'ROOM') {
+        if (!resData) throw new BadRequestException('This room does not have an active checked-in guest.');
+        legacyReservationId = (resData as any).id;
+      } else if (dto.orderType === 'WALK_IN') {
+        if (!resData || (resData as any).status !== 'ACTIVE') {
+          throw new BadRequestException('Invalid or closed Walk-In Session');
+        }
+      }
+
       const itemMap = new Map(dbItems.map(i => [i.id, i]));
 
-      // 1. Validate items and calculate subtotal & tax using the pre-fetched map
+      // 2. Validate items and calculate subtotal & tax using the pre-fetched map
       for (const orderItem of dto.items) {
         const invItem = itemMap.get(orderItem.itemId);
 
@@ -134,30 +138,32 @@ export class OrdersService {
 
       const total = subtotal + tax;
 
-      // 2. Transaction: Create Order, create OrderItems, decrease inventory
-      // Items are already in itemMap — no second N+1 lookup needed
+      // 3. Transaction: Create Order, parallelize inventory deductions and batch insert inventory transactions
       const order = await this.prisma.$transaction(async (tx) => {
         const newOrder = await tx.order.create({
           data: {
-              orderType: dto.orderType,
-              guestId: dto.guestId,
-              roomId: dto.roomId,
-              legacyReservationId,
-              walkInSessionId: dto.walkInSessionId,
-              paymentMethod: dto.paymentMethod,
-              status: (dto.paymentMethod === 'ROOM_CHARGE' && !dto.isHB) ? 'PENDING' : 'PAID',
-              subtotal,
-              tax,
-              total: dto.isHB ? 0 : total,
-              originalTotal: dto.isHB ? total : null,
-              items: {
-                create: orderItemsData,
-              },
+            orderType: dto.orderType,
+            guestId: dto.guestId,
+            roomId: dto.roomId,
+            legacyReservationId,
+            walkInSessionId: dto.walkInSessionId,
+            paymentMethod: dto.paymentMethod,
+            status: (dto.paymentMethod === 'ROOM_CHARGE' && !dto.isHB) ? 'PENDING' : 'PAID',
+            subtotal,
+            tax,
+            total: dto.isHB ? 0 : total,
+            originalTotal: dto.isHB ? total : null,
+            items: {
+              create: orderItemsData,
             },
-            include: { items: true },
-          });
+          },
+          include: { items: true },
+        });
 
-        // Use pre-fetched itemMap — no additional DB queries per item
+        // Collect inventory updates and transactions in memory
+        const inventoryUpdates: Promise<any>[] = [];
+        const inventoryTransactions: any[] = [];
+
         for (const orderItem of dto.items) {
           const itemObj = itemMap.get(orderItem.itemId);
           if (!itemObj) continue;
@@ -166,44 +172,51 @@ export class OrdersService {
             for (const ing of itemObj.compositeOf) {
               if (ing.ingredient?.trackStock) {
                 const deductionQty = ing.quantity * orderItem.quantity;
-                await tx.item.update({
-                  where: { id: ing.ingredientItemId },
-                  data: { stockQuantity: { decrement: deductionQty } }
-                });
-                await tx.inventoryTransaction.create({
-                  data: {
-                    itemId: ing.ingredientItemId,
-                    type: 'OUT',
-                    quantity: deductionQty,
-                    reference: `Order ${newOrder.id}`,
-                    remarks: `Used in ${itemObj.name} (POS Sale)`
-                  }
+                inventoryUpdates.push(
+                  tx.item.update({
+                    where: { id: ing.ingredientItemId },
+                    data: { stockQuantity: { decrement: deductionQty } }
+                  })
+                );
+                inventoryTransactions.push({
+                  itemId: ing.ingredientItemId,
+                  type: 'OUT',
+                  quantity: deductionQty,
+                  reference: `Order ${newOrder.id}`,
+                  remarks: `Used in ${itemObj.name} (POS Sale)`
                 });
               }
             }
           } else if (itemObj.trackStock) {
-            await tx.item.update({
-              where: { id: orderItem.itemId },
-              data: {
-                stockQuantity: { decrement: orderItem.quantity },
-              },
-            });
-            await tx.inventoryTransaction.create({
-              data: {
-                itemId: orderItem.itemId,
-                type: 'OUT',
-                quantity: orderItem.quantity,
-                reference: `Order ${newOrder.id}`,
-                remarks: `POS Sale`
-              }
+            inventoryUpdates.push(
+              tx.item.update({
+                where: { id: orderItem.itemId },
+                data: { stockQuantity: { decrement: orderItem.quantity } }
+              })
+            );
+            inventoryTransactions.push({
+              itemId: orderItem.itemId,
+              type: 'OUT',
+              quantity: orderItem.quantity,
+              reference: `Order ${newOrder.id}`,
+              remarks: `POS Sale`
             });
           }
         }
+
+        // Execute all inventory updates and batch log transaction in parallel
+        await Promise.all([
+          ...inventoryUpdates,
+          inventoryTransactions.length > 0
+            ? tx.inventoryTransaction.createMany({ data: inventoryTransactions })
+            : Promise.resolve()
+        ]);
 
         return newOrder;
       });
 
       return order;
+
     } catch (e: any) {
       throw new BadRequestException(e.message || "Unknown Server Error");
     }

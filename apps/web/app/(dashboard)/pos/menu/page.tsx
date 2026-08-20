@@ -149,8 +149,11 @@ function POSContent() {
 
   const total = subtotal + tax;
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleCheckout = async (method: string) => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || isSubmitting) return;
+    setIsSubmitting(true);
     try {
       await api.post("/orders", {
         orderType,
@@ -160,18 +163,20 @@ function POSContent() {
         isHB: isHBMode,
         items: cart.map(i => ({ itemId: i.id, quantity: i.cartQuantity, note: i.note }))
       });
-      alert(`Order completed using ${method}!`);
       setCart([]);
       mutate(); // refresh stock in cache
+      setShowReviewModal(false);
       router.push('/pos');
     } catch (err: any) {
       alert("Error: " + JSON.stringify(err.response?.data || err.message));
       console.error(err);
+      setIsSubmitting(false);
     }
   };
 
   const handleCheckoutWithWhatsApp = async (method: string) => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || isSubmitting) return;
+    setIsSubmitting(true);
     
     // Build WhatsApp message
     const now = new Date();
@@ -245,8 +250,10 @@ function POSContent() {
     } catch (err: any) {
       alert("Error: " + JSON.stringify(err.response?.data || err.message));
       console.error(err);
+      setIsSubmitting(false);
     }
   };
+
 
   return (
     <div className="lg:h-[calc(100vh-64px)] h-auto min-h-screen flex flex-col lg:flex-row bg-background">
@@ -534,23 +541,23 @@ function POSContent() {
           <DialogFooter className="flex flex-col gap-2 sm:flex-col sm:space-x-0 w-full">
             <Button 
               className="bg-primary hover:bg-primary/90 text-primary-foreground w-full"
-              onClick={() => {
-                setShowReviewModal(false);
-                handleCheckout("ROOM_CHARGE");
-              }}
+              disabled={isSubmitting}
+              onClick={() => handleCheckout("ROOM_CHARGE")}
             >
-              Confirm Order
+              {isSubmitting ? "Placing Order..." : "Confirm Order"}
             </Button>
             <Button 
               className="bg-[#25D366] hover:bg-[#128C7E] text-white w-full"
+              disabled={isSubmitting}
               onClick={() => handleCheckoutWithWhatsApp("ROOM_CHARGE")}
             >
-              <MessageCircle className="w-4 h-4 mr-2" /> Confirm & WhatsApp KOT
+              <MessageCircle className="w-4 h-4 mr-2" /> {isSubmitting ? "Placing Order..." : "Confirm & WhatsApp KOT"}
             </Button>
-            <Button variant="outline" className="w-full mt-2" onClick={() => setShowReviewModal(false)}>
+            <Button variant="outline" className="w-full mt-2" disabled={isSubmitting} onClick={() => setShowReviewModal(false)}>
               Back to Edit
             </Button>
           </DialogFooter>
+
         </DialogContent>
       </Dialog>
 
