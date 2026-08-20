@@ -9,7 +9,7 @@ export class PosCategoriesService {
   async findAll() {
     return this.prisma.posCategory.findMany({
       where: { isActive: true },
-      orderBy: { sortOrder: 'asc' },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
     });
   }
 
@@ -28,10 +28,20 @@ export class PosCategoriesService {
       }
       throw new ConflictException('POS Category with this name already exists');
     }
-    const cat = await this.prisma.posCategory.create({ data });
+
+    const lastCat = await this.prisma.posCategory.findFirst({
+      orderBy: { sortOrder: 'desc' },
+      select: { sortOrder: true }
+    });
+    const nextSortOrder = (lastCat?.sortOrder ?? -1) + 1;
+
+    const cat = await this.prisma.posCategory.create({
+      data: { ...data, sortOrder: nextSortOrder }
+    });
     ItemsService.invalidatePosCache();
     return cat;
   }
+
 
   async update(id: string, data: { name: string }) {
     const category = await this.prisma.posCategory.findUnique({ where: { id } });
