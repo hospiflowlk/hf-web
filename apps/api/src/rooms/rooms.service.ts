@@ -16,33 +16,78 @@ export class RoomsService {
           },
         },
       },
-      include: {
+      select: {
+        id: true,
+        number: true,
+        status: true,
+        category: {
+          select: {
+            id: true,
+            name: true,
+            basePrice: true,
+          }
+        },
         reservations: {
           where: {
             status: 'CHECKED_IN',
             isDeleted: false,
           },
-          include: {
-            guest: true,
+          select: {
+            id: true,
+            checkIn: true,
+            checkOut: true,
+            status: true,
+            totalPrice: true,
+            guest: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                phone: true,
+                email: true,
+              }
+            },
             posOrders: {
               where: { 
                 paymentMethod: 'ROOM_CHARGE',
                 isDeleted: false,
                 status: { not: 'CANCELLED' }
               },
-              include: {
+              select: {
+                id: true,
+                total: true,
+                subtotal: true,
+                tax: true,
+                tip: true,
+                signatureData: true,
+                signedAt: true,
+                createdAt: true,
+                status: true,
                 items: {
-                  include: { item: true }
+                  select: {
+                    id: true,
+                    quantity: true,
+                    unitPrice: true,
+                    totalPrice: true,
+                    note: true,
+                    item: {
+                      select: {
+                        id: true,
+                        name: true,
+                        exemptTaxes: true,
+                      }
+                    }
+                  }
                 }
               }
             }
           }
         },
-        category: true,
       },
       orderBy: { number: 'asc' },
     });
   }
+
 
   async getCheckedInRoomsBasic() {
     return this.prisma.room.findMany({
@@ -417,19 +462,61 @@ export class RoomsService {
         isDeleted: false,
       },
       orderBy: { checkOut: 'desc' },
-      take: 50,
-      include: {
-        guest: true,
-        room: { include: { category: true } },
+      take: 30,
+      select: {
+        id: true,
+        checkIn: true,
+        checkOut: true,
+        status: true,
+        totalPrice: true,
+        guest: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            phone: true,
+          }
+        },
+        room: {
+          select: {
+            id: true,
+            number: true,
+            category: {
+              select: {
+                id: true,
+                name: true,
+              }
+            }
+          }
+        },
         posOrders: {
           where: { 
             paymentMethod: 'ROOM_CHARGE',
             isDeleted: false,
             status: { not: 'CANCELLED' }
           },
-          include: {
+          select: {
+            id: true,
+            total: true,
+            tip: true,
+            signatureData: true,
+            signedAt: true,
+            createdAt: true,
             items: {
-              include: { item: true }
+              select: {
+                id: true,
+                quantity: true,
+                unitPrice: true,
+                totalPrice: true,
+                note: true,
+                item: {
+                  select: {
+                    id: true,
+                    name: true,
+                    exemptTaxes: true,
+                  }
+                }
+              }
             }
           }
         }
@@ -443,6 +530,7 @@ export class RoomsService {
       reservations: [res]
     }));
   }
+
 
   async deleteCheckout(reservationId: string) {
     await this.prisma.order.updateMany({

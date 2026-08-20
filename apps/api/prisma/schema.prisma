@@ -379,7 +379,10 @@ model Room {
   createdAt                 DateTime                    @default(now())
   updatedAt                 DateTime                    @updatedAt
   ReservationRoomAllocation ReservationRoomAllocation[]
+
+  @@index([isDeleted, status])
 }
+
 
 model RoomOutOfOrder {
   id        String   @id @default(uuid())
@@ -456,7 +459,9 @@ model LegacyReservation {
 
   @@index([roomId, status, isDeleted])
   @@index([status, isDeleted])
+  @@index([status, isDeleted, checkOut])
 }
+
 
 
 

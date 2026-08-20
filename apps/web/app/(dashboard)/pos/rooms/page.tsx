@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Hotel, UserPlus, Trash2, Edit2, ArrowLeft } from "lucide-react";
@@ -11,10 +12,23 @@ import api from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 export default function RoomGuestsPage() {
-  const [rooms, setRooms] = useState<any[]>([]);
-  const [recentRooms, setRecentRooms] = useState<any[]>([]);
-  const [allRooms, setAllRooms] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: rooms = [], isLoading: loadingRooms, mutate: mutateRooms } = useSWR<any[]>(
+    "/rooms/checked-in",
+    fetcher,
+    { dedupingInterval: 10000 }
+  );
+  const { data: allRooms = [], mutate: mutateAllRooms } = useSWR<any[]>(
+    "/rooms/all",
+    fetcher,
+    { dedupingInterval: 60000 }
+  );
+  const { data: recentRooms = [], isLoading: loadingRecent, mutate: mutateRecent } = useSWR<any[]>(
+    "/rooms/recent-checkouts",
+    fetcher,
+    { dedupingInterval: 10000 }
+  );
+
   const [tab, setTab] = useState<'ACTIVE' | 'HISTORY'>('ACTIVE');
   const router = useRouter();
 
@@ -30,25 +44,10 @@ export default function RoomGuestsPage() {
   const [selectedRoomForOrders, setSelectedRoomForOrders] = useState<any>(null);
   const [signingOrder, setSigningOrder] = useState<any | 'ALL'>(null);
 
-  useEffect(() => {
-    fetchRooms();
-  }, []);
-
-  const fetchRooms = async () => {
-    setLoading(true);
-    try {
-      const [res, allRes, recentRes] = await Promise.all([
-        api.get("/rooms/checked-in"),
-        api.get("/rooms/all"),
-        api.get("/rooms/recent-checkouts")
-      ]);
-      setRooms(res.data);
-      setAllRooms(allRes.data);
-      setRecentRooms(recentRes.data);
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(false);
+  const refreshAll = () => {
+    mutateRooms();
+    mutateAllRooms();
+    mutateRecent();
   };
 
   const handleSimulateCheckIn = async () => {
@@ -60,7 +59,7 @@ export default function RoomGuestsPage() {
       setFirstName("");
       setLastName("");
       setSelectedRoomId("");
-      fetchRooms(); // Refresh the checked-in rooms!
+      refreshAll();
     } catch (e) {
       console.error(e);
     }
@@ -71,7 +70,7 @@ export default function RoomGuestsPage() {
     if (confirm("Are you sure you want to void this check-in?")) {
       try {
         await api.delete(`/rooms/active-checkin/${reservationId}`);
-        fetchRooms();
+        refreshAll();
       } catch (e: any) {
         alert("Delete failed: " + (e.response?.data?.message || e.message));
       }
@@ -84,7 +83,7 @@ export default function RoomGuestsPage() {
     try {
       await api.post(`/rooms/active-checkin/${editReservationId}`, { firstName: editFirstName, lastName: editLastName });
       setEditModalOpen(false);
-      fetchRooms();
+      refreshAll();
     } catch (e: any) {
       alert("Edit failed: " + (e.response?.data?.message || e.message));
     }
@@ -107,7 +106,7 @@ export default function RoomGuestsPage() {
       try {
         await api.post(`/rooms/un-checkout/${reservationId}`);
         alert("Room un-checked out successfully!");
-        fetchRooms();
+        refreshAll();
       } catch (e: any) {
         alert("Un-checkout failed: " + (e.response?.data?.message || e.message));
       }
@@ -118,7 +117,7 @@ export default function RoomGuestsPage() {
     if (confirm("Are you sure you want to delete this checkout record permanently?")) {
       try {
         await api.delete(`/rooms/recent-checkouts/${reservationId}`);
-        fetchRooms();
+        refreshAll();
       } catch (e: any) {
         alert("Delete failed: " + (e.response?.data?.message || e.message));
       }
@@ -129,7 +128,7 @@ export default function RoomGuestsPage() {
     if (confirm("Are you sure you want to delete ALL checkout records permanently? This action cannot be undone.")) {
       try {
         await api.delete(`/rooms/recent-checkouts`);
-        fetchRooms();
+        refreshAll();
       } catch (e: any) {
         alert("Delete all failed: " + (e.response?.data?.message || e.message));
       }
@@ -138,6 +137,7 @@ export default function RoomGuestsPage() {
 
   const handleSignOrder = async (orderOrAll: any, signatureData: string, tip: number) => {
     setSubmitting(true);
+
     try {
       if (orderOrAll === 'ALL') {
         const unpaidOrders = selectedRoomForOrders?.reservations?.[0]?.posOrders?.filter((o: any) => !o.signatureData && o.status !== 'CANCELLED') || [];
@@ -148,7 +148,7 @@ export default function RoomGuestsPage() {
         await api.post(`/orders/${orderOrAll.id}/sign`, { signatureData, tip });
       }
       setSigningOrder(null);
-      fetchRooms(); // Refresh to get updated order status
+      refreshAll(); // Refresh to get updated order status
       
       // Update local state for selectedRoomForOrders so the modal updates immediately
       if (selectedRoomForOrders) {
@@ -218,14 +218,18 @@ export default function RoomGuestsPage() {
               <div>
                 <label className="text-sm font-medium">Select Room</label>
                 <select 
-                  className="w-full border border-gray-300 p-2 rounded-md mt-1"
+                  className="w-full h-10 border rounded-md px-3 bg-background"
                   value={selectedRoomId}
-                  onChange={(e) => setSelectedRoomId(e.target.value)}
+                  onChange={e => setSelectedRoomId(e.target.value)}
                 >
-                  <option value="">-- Select an Empty Room --</option>
-                  {allRooms.filter(r => !rooms.find(cr => cr.id === r.id)).map(r => (
-                    <option key={r.id} value={r.id}>Room {r.number}</option>
-                  ))}
+                  <option value="">-- Choose an Available Room --</option>
+                  {allRooms
+                    .filter(r => !rooms.some(cr => cr.id === r.id))
+                    .map(r => (
+                      <option key={r.id} value={r.id}>
+                        Room {r.number} ({r.category?.name})
+                      </option>
+                    ))}
                 </select>
               </div>
               <div className="space-y-4">
@@ -247,8 +251,36 @@ export default function RoomGuestsPage() {
         </div>
       </div>
 
-      {loading ? (
-        <p className="text-muted-foreground">Loading rooms...</p>
+      {tab === 'ACTIVE' && loadingRooms && rooms.length === 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {Array.from({ length: 8 }).map((_, idx) => (
+            <Card key={idx} className="animate-pulse flex flex-col justify-between h-48 border-gray-100">
+              <CardHeader className="bg-slate-100 pb-2">
+                <div className="h-5 bg-slate-200 rounded w-1/2 mb-1"></div>
+                <div className="h-3 bg-slate-200 rounded w-1/3"></div>
+              </CardHeader>
+              <CardContent className="p-4 space-y-2">
+                <div className="h-4 bg-slate-100 rounded w-3/4"></div>
+                <div className="h-4 bg-slate-100 rounded w-1/2"></div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : tab === 'HISTORY' && loadingRecent && recentRooms.length === 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {Array.from({ length: 8 }).map((_, idx) => (
+            <Card key={idx} className="animate-pulse flex flex-col justify-between h-48 border-gray-100">
+              <CardHeader className="bg-slate-100 pb-2">
+                <div className="h-5 bg-slate-200 rounded w-1/2 mb-1"></div>
+                <div className="h-3 bg-slate-200 rounded w-1/3"></div>
+              </CardHeader>
+              <CardContent className="p-4 space-y-2">
+                <div className="h-4 bg-slate-100 rounded w-3/4"></div>
+                <div className="h-4 bg-slate-100 rounded w-1/2"></div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       ) : tab === 'ACTIVE' && rooms.length === 0 ? (
         <Card>
           <CardContent className="py-12 flex flex-col items-center text-muted-foreground">
@@ -356,8 +388,9 @@ export default function RoomGuestsPage() {
                             try {
                               await api.post(`/rooms/${room.id}/checkout`);
                               alert("Check-out successful! A draft invoice has been generated.");
-                              fetchRooms();
+                              refreshAll();
                             } catch (e: any) {
+
                               alert("Checkout failed: " + e.message);
                             }
                           }
