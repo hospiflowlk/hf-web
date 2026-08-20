@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import useSWR from "swr";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { ReceiptText, Trash2, ArrowLeft, ChefHat, CheckCircle2, Clock, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -8,53 +9,55 @@ import Link from "next/link";
 import api from "@/lib/api";
 
 export default function KitchenDashboardPage() {
-  const [orders, setOrders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'ACTIVE' | 'COMPLETED'>('ACTIVE');
-  const [subTab, setSubTab] = useState<'PENDING' | 'PREPARING'>('PENDING');
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    fetchOrders();
-    // In a real KDS, you would poll or use websockets here
-    const interval = setInterval(fetchOrders, 10000); // poll every 10s
-    return () => clearInterval(interval);
-  }, []);
-
-  const fetchOrders = async () => {
-    try {
-      const res = await api.get("/orders/active");
-      setOrders(res.data);
-    } catch (e) {
-      console.error(e);
+  const fetcher = (url: string) => api.get(url).then(res => res.data);
+  const { data: orders = [], isLoading, mutate } = useSWR<any[]>(
+    "/orders/active",
+    fetcher,
+    {
+      refreshInterval: 5000,
+      revalidateOnFocus: true,
     }
-    setLoading(false);
-  };
+  );
+
+  const [tab, setTab] = useState<'ACTIVE' | 'COMPLETED'>('ACTIVE');
+  const [submitting, setSubmitting] = useState(false);
 
   const handleUpdateStatus = async (id: string, newStatus: string) => {
     setSubmitting(true);
+    // Optimistic update
+    mutate(
+      orders.map(o => o.id === id ? { ...o, status: newStatus, updatedAt: new Date().toISOString() } : o),
+      false
+    );
     try {
       await api.post(`/orders/${id}/status`, { status: newStatus });
-      fetchOrders();
+      mutate();
     } catch (e) {
       console.error(e);
+      mutate();
       alert("Failed to update status");
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
   const handleDeleteOrder = async (id: string) => {
     if (!confirm("Are you sure you want to cancel and delete this order?")) return;
     setSubmitting(true);
+    // Optimistic delete
+    mutate(orders.filter(o => o.id !== id), false);
     try {
       await api.delete(`/orders/${id}`);
-      fetchOrders();
+      mutate();
     } catch (e) {
       console.error(e);
+      mutate();
       alert("Failed to delete order");
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
+
 
   const pendingOrders = orders.filter(o => o.status === 'PENDING');
   const preparingOrders = orders.filter(o => o.status === 'PREPARING');
@@ -220,8 +223,22 @@ export default function KitchenDashboardPage() {
         </div>
       </div>
 
-      {loading ? (
-        <p className="text-muted-foreground">Loading kitchen orders...</p>
+      {isLoading && orders.length === 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
+          {Array.from({ length: 6 }).map((_, idx) => (
+            <div key={idx} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm space-y-3 animate-pulse">
+              <div className="flex justify-between items-center pb-2 border-b">
+                <div className="h-4 bg-slate-200 rounded w-1/3"></div>
+                <div className="h-4 bg-slate-100 rounded w-16"></div>
+              </div>
+              <div className="space-y-2 py-2">
+                <div className="h-3 bg-slate-100 rounded w-3/4"></div>
+                <div className="h-3 bg-slate-100 rounded w-1/2"></div>
+              </div>
+              <div className="h-8 bg-slate-200 rounded w-full"></div>
+            </div>
+          ))}
+        </div>
       ) : tab === 'ACTIVE' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
           {activeOrders.length === 0 ? (
@@ -239,6 +256,7 @@ export default function KitchenDashboardPage() {
           )}
         </div>
       )}
+
     </div>
   );
 }

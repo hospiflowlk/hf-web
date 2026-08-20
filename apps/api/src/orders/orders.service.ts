@@ -223,32 +223,70 @@ export class OrdersService {
   }
 
   async getActiveOrders() {
+    const recentCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000); // completed in past 24h
+
     const orders = await this.prisma.order.findMany({
       where: {
-        status: { in: ['PENDING', 'PREPARING', 'SERVED', 'PAID'] },
         isDeleted: false,
         OR: [
-          { orderType: 'WALK_IN' },
+          { status: { in: ['PENDING', 'PREPARING'] } },
           {
-            orderType: 'ROOM',
-            legacyReservation: {
-              isDeleted: false
-            }
-          },
-          { orderType: 'LEGACY' }
+            status: { in: ['SERVED', 'PAID'] },
+            createdAt: { gte: recentCutoff }
+          }
         ]
       },
-      include: {
-        items: { include: { item: true } },
-        walkInSession: true,
+      select: {
+        id: true,
+        orderType: true,
+        status: true,
+        paymentMethod: true,
+        createdAt: true,
+        subtotal: true,
+        tax: true,
+        total: true,
+        originalTotal: true,
+        items: {
+          select: {
+            id: true,
+            quantity: true,
+            note: true,
+            item: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        },
+        walkInSession: {
+          select: {
+            id: true,
+            guestName: true,
+            referenceNumber: true
+          }
+        },
         legacyReservation: {
-          include: {
-            room: true,
-            guest: true
+          select: {
+            id: true,
+            room: {
+              select: {
+                id: true,
+                number: true
+              }
+            },
+            guest: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true
+              }
+            }
           }
         }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      take: 100
     });
 
     return orders.sort((a: any, b: any) => {
@@ -264,9 +302,10 @@ export class OrdersService {
         if (roomA !== roomB) return roomA.localeCompare(roomB);
       }
       
-      return b.createdAt.getTime() - a.createdAt.getTime();
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }
+
 
   async getOrderHistory() {
     const orders = await this.prisma.order.findMany({

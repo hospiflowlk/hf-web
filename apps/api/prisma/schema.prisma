@@ -519,8 +519,11 @@ model Order {
   updatedAt DateTime    @updatedAt
 
   @@index([status, isDeleted])
+  @@index([isDeleted, status, createdAt])
   @@index([legacyReservationId])
+  @@index([createdAt])
 }
+
 
 model WalkInSession {
   id              String              @id @default(uuid())
